@@ -30,7 +30,6 @@ export function createPlayer(worldSeed, initialMode = 'fly', initialPos = new TH
       mode = newMode;
       velocity.set(0, 0, 0);
       if (mode === 'walk') {
-        // Clamp to ground level on switch
         if (position.y > 0 && position.y < 10) {
           position.y = 0;
           isGrounded = true;
@@ -57,17 +56,17 @@ export function createPlayer(worldSeed, initialMode = 'fly', initialPos = new TH
         camera.position.copy(position);
       }
     },
-    update(camera, input, deltaTime) {
-      if (mode === 'fly') {
+    update(camera, input, deltaTime, activeInterior = null) {
+      if (mode === 'fly' && !activeInterior) {
         updateCamera(camera, input, deltaTime);
         position.copy(camera.position);
         return;
       }
 
-      // Walk Mode
+      // Walk / Interior Mode
       const speed = input.keys.shift ? RUN_SPEED : WALK_SPEED;
 
-      // Mouse look update (yaw and pitch)
+      // Mouse look update
       const mouseDelta = input.consumeMouse();
       const sensitivity = 0.002;
       const PITCH_LIMIT = 1.55;
@@ -93,8 +92,14 @@ export function createPlayer(worldSeed, initialMode = 'fly', initialPos = new TH
         desiredMove.z = moveDir.z * speed * deltaTime;
       }
 
-      // Resolve AABB collision with 3x3 local buildings
-      const resolved = resolveCollision(worldSeed, position, desiredMove, PLAYER_RADIUS, EYE_HEIGHT);
+      // Resolve collision against interior walls or exterior city buildings
+      let resolved;
+      if (activeInterior) {
+        resolved = activeInterior.resolveCollision(position, desiredMove, PLAYER_RADIUS);
+      } else {
+        resolved = resolveCollision(worldSeed, position, desiredMove, PLAYER_RADIUS, EYE_HEIGHT);
+      }
+
       position.x = resolved.x;
       position.z = resolved.z;
 
