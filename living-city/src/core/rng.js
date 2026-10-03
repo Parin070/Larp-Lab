@@ -1,7 +1,7 @@
 // Seeded PRNG using mulberry32 algorithm
 // Never use Math.random() - determinism is critical
 
-function hashString(str) {
+export function hashString(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) {
     h = Math.imul(31, h) + str.charCodeAt(i) | 0;
