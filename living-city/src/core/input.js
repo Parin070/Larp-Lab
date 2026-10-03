@@ -15,18 +15,37 @@ export function createInput(canvas) {
     locked: false
   };
 
+  const resetKeys = () => {
+    keys.w = false;
+    keys.a = false;
+    keys.s = false;
+    keys.d = false;
+    keys.shift = false;
+    keys.space = false;
+    keys.c = false;
+  };
+
   const onKeyDown = (e) => {
-    const key = e.key.toLowerCase();
-    if (key in keys) keys[key] = true;
-    if (key === 'shift') keys.shift = true;
-    if (key === ' ') keys.space = true;
+    if (e.code === 'KeyW') keys.w = true;
+    if (e.code === 'KeyA') keys.a = true;
+    if (e.code === 'KeyS') keys.s = true;
+    if (e.code === 'KeyD') keys.d = true;
+    if (e.code === 'KeyC') keys.c = true;
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.shift = true;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      keys.space = true;
+    }
   };
 
   const onKeyUp = (e) => {
-    const key = e.key.toLowerCase();
-    if (key in keys) keys[key] = false;
-    if (key === 'shift') keys.shift = false;
-    if (key === ' ') keys.space = false;
+    if (e.code === 'KeyW') keys.w = false;
+    if (e.code === 'KeyA') keys.a = false;
+    if (e.code === 'KeyS') keys.s = false;
+    if (e.code === 'KeyD') keys.d = false;
+    if (e.code === 'KeyC') keys.c = false;
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.shift = false;
+    if (e.code === 'Space') keys.space = false;
   };
 
   const onMouseMove = (e) => {
@@ -38,6 +57,7 @@ export function createInput(canvas) {
 
   const onPointerLockChange = () => {
     mouse.locked = document.pointerLockElement === canvas;
+    if (!mouse.locked) resetKeys();
   };
 
   const onClick = () => {
@@ -46,6 +66,7 @@ export function createInput(canvas) {
     }
   };
 
+  window.addEventListener('blur', resetKeys);
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
   canvas.addEventListener('mousemove', onMouseMove);
@@ -63,6 +84,7 @@ export function createInput(canvas) {
       return { dx, dy };
     },
     dispose() {
+      window.removeEventListener('blur', resetKeys);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       canvas.removeEventListener('mousemove', onMouseMove);
