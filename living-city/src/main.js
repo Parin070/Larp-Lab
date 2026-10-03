@@ -6,8 +6,9 @@ import { createPlayer } from './core/player.js';
 import { startLoop } from './core/loop.js';
 import { createEventBus } from './events/bus.js';
 import { createChunkManager } from './world/chunkManager.js';
-import { getNearbyBuildingAABBs } from './core/physics.js';
 import { generateChunkData } from './world/chunk.js';
+import { createTrafficSystem } from './sim/traffic.js';
+import { createNPCRenderer } from './sim/npcRenderer.js';
 import { createInteriorScene } from './interiors/interiorScene.js';
 import { createInteractionPrompt } from './ui/interactionPrompt.js';
 import { createTimeController, getSkyColor, updateLighting, getWindowIntensity } from './sim/time.js';
@@ -37,6 +38,13 @@ const chunkManager = createChunkManager(SEED, exteriorScene, bus, 2);
 chunkManager.init(0, 0);
 
 bus.emit('world_initialized', { data: { seed: SEED, loadRadius: 2 } });
+
+// Traffic & NPC Simulation (1 draw call each)
+const traffic = createTrafficSystem(SEED, 64);
+exteriorScene.add(traffic.mesh);
+
+const npcs = createNPCRenderer(SEED, bus, 80);
+exteriorScene.add(npcs.mesh);
 
 // Lighting
 const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -153,6 +161,13 @@ startLoop(
     // Update player and camera kinematics
     player.update(camera, input, deltaTime, activeInterior);
 
+    // Update exterior simulation (traffic & NPCs)
+    if (!activeInterior) {
+      traffic.update(deltaTime, player.getPosition());
+      npcs.update(time);
+      chunkManager.update(player.getPosition());
+    }
+
     // Interaction prompt update
     if (activeInterior) {
       if (activeInterior.isNearExit(player.getPosition())) {
@@ -169,11 +184,6 @@ startLoop(
       }
     } else {
       interactionPrompt.hide();
-    }
-
-    // Update chunk streaming around player position when outside
-    if (!activeInterior) {
-      chunkManager.update(player.getPosition());
     }
 
     // Emit camera_moved only on cell change
@@ -199,7 +209,7 @@ startLoop(
 );
 
 // Log startup
-console.log(`Living City - Milestone 3: Enterable Buildings
+console.log(`Living City - Milestone 4: Roads, Traffic & NPCs
 Seed: ${SEED}
 Chunk Size: 576m (8x8 cells)
 Controls:
