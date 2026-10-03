@@ -3,9 +3,8 @@ import { createRenderer, setupResize } from './core/renderer.js';
 import { createCamera, updateCamera } from './core/camera.js';
 import { createInput } from './core/input.js';
 import { startLoop } from './core/loop.js';
-import { createRNG } from './core/rng.js';
 import { createEventBus } from './events/bus.js';
-import { generateCity } from './world/city.js';
+import { createChunkManager } from './world/chunkManager.js';
 import { createTimeController, getSkyColor, updateLighting, getWindowIntensity } from './sim/time.js';
 import { createDebugOverlay } from './ui/debug.js';
 
@@ -21,15 +20,11 @@ const camera = createCamera(75, window.innerWidth / window.innerHeight);
 const timeController = createTimeController();
 const bus = createEventBus(() => timeController.getTime());
 
-// RNG and world generation
-const rng = createRNG(SEED);
-const city = generateCity(rng, 20);
+// Chunk streaming world (infinite, load radius 2 = 5x5 = 25 chunks)
+const chunkManager = createChunkManager(SEED, scene, bus, 2);
+chunkManager.init(0, 0);
 
-scene.add(city.meshes.buildings);
-scene.add(city.meshes.ground);
-scene.add(city.meshes.roads);
-
-bus.emit('city_generated', { data: { seed: SEED, buildings: city.data.length } });
+bus.emit('world_initialized', { data: { seed: SEED, loadRadius: 2 } });
 
 // Lighting
 const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -77,14 +72,16 @@ startLoop(
 
     // Update building window glow
     const windowIntensity = getWindowIntensity(time);
-    if (city.buildingMaterial.userData.nightIntensity) {
-      city.buildingMaterial.userData.nightIntensity.value = windowIntensity;
-    } else {
-      city.buildingMaterial.emissiveIntensity = windowIntensity;
+    const buildingMaterial = chunkManager.getBuildingMaterial();
+    if (buildingMaterial.userData.nightIntensity) {
+      buildingMaterial.userData.nightIntensity.value = windowIntensity;
     }
 
     // Update camera
     updateCamera(camera, input, deltaTime);
+
+    // Update chunk streaming
+    chunkManager.update(camera.position);
 
     // Emit camera_moved only on cell change
     const currentCell = getCameraCell(camera.position);
@@ -98,7 +95,8 @@ startLoop(
 
     // Update debug overlay
     debugOverlay.update(deltaTime, time, camera.position, {
-      isPaused: timeController.isPaused()
+      isPaused: timeController.isPaused(),
+      loadedChunks: chunkManager.getLoadedChunkCount()
     });
   },
   () => {
@@ -107,8 +105,10 @@ startLoop(
 );
 
 // Log startup
-console.log(`Living City - Phase 1
+console.log(`Living City - Milestone 1: Chunk Streaming
 Seed: ${SEED}
-Buildings: ${city.data.length}
-Press F3 to toggle debug overlay
-Click to lock mouse, WASD to move, Shift to boost, Space/C to fly`);
+Chunk Size: 576m (8x8 cells)
+Load Radius: 2 (5x5 = 25 chunks)
+Press F3 for full debug, F4 for telemetry
+Click to lock mouse, WASD to move, Shift to boost, Space/C to fly
+P: pause, [ / ]: scrub time`);
