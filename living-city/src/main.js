@@ -9,8 +9,11 @@ import { createChunkManager } from './world/chunkManager.js';
 import { generateChunkData } from './world/chunk.js';
 import { createTrafficSystem } from './sim/traffic.js';
 import { createNPCRenderer } from './sim/npcRenderer.js';
+import { createWaypointMarker } from './world/waypoint.js';
 import { createInteriorScene } from './interiors/interiorScene.js';
 import { createInteractionPrompt } from './ui/interactionPrompt.js';
+import { createSearchModal } from './ui/searchModal.js';
+import { saveGameState, loadGameState } from './save/saveManager.js';
 import { createTimeController, getSkyColor, updateLighting, getWindowIntensity } from './sim/time.js';
 import { createDebugOverlay } from './ui/debug.js';
 
@@ -39,12 +42,15 @@ chunkManager.init(0, 0);
 
 bus.emit('world_initialized', { data: { seed: SEED, loadRadius: 2 } });
 
-// Traffic & NPC Simulation (1 draw call each)
+// Traffic, NPCs, and Waypoint Marker
 const traffic = createTrafficSystem(SEED, 64);
 exteriorScene.add(traffic.mesh);
 
 const npcs = createNPCRenderer(SEED, bus, 80);
 exteriorScene.add(npcs.mesh);
+
+const waypoint = createWaypointMarker();
+exteriorScene.add(waypoint.group);
 
 // Lighting
 const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -57,6 +63,29 @@ exteriorScene.add(hemisphereLight);
 const input = createInput(renderer.domElement);
 const debugOverlay = createDebugOverlay(renderer);
 const interactionPrompt = createInteractionPrompt();
+
+// Search Modal
+const searchModal = createSearchModal(
+  SEED,
+  (building) => {
+    waypoint.setTarget({ x: building.door.x, z: building.door.z }, building.address);
+    bus.emit('waypoint_set', {
+      actorId: 'player',
+      locationId: building.id,
+      data: { x: building.door.x, z: building.door.z, address: building.address }
+    });
+  },
+  (building) => {
+    player.setMode('walk', camera);
+    player.teleport(new THREE.Vector3(building.door.x, 0, building.door.z), camera);
+    waypoint.setTarget({ x: building.door.x, z: building.door.z }, building.address);
+    bus.emit('player_teleport', {
+      actorId: 'player',
+      locationId: building.id,
+      data: { x: building.door.x, z: building.door.z, address: building.address }
+    });
+  }
+);
 
 // Find nearby door in exterior world
 function findNearbyExteriorDoor(pos, maxDist = 3.5) {
@@ -83,12 +112,25 @@ function findNearbyExteriorDoor(pos, maxDist = 3.5) {
 
 // Mode & Interaction Key handlers
 input.onKeyPress('KeyV', () => {
-  if (activeInterior) return; // Cannot fly inside building
+  if (activeInterior || searchModal.isOpen()) return;
   const newMode = player.toggleMode(camera);
   bus.emit('player_mode_changed', { data: { mode: newMode } });
 });
 
+input.onKeyPress('KeyK', () => {
+  if (activeInterior) return;
+  searchModal.toggle();
+});
+
+input.onKeyPress('Slash', (e) => {
+  if (activeInterior) return;
+  e.preventDefault();
+  searchModal.toggle();
+});
+
 input.onKeyPress('KeyE', () => {
+  if (searchModal.isOpen()) return;
+
   if (activeInterior) {
     if (activeInterior.isNearExit(player.getPosition())) {
       const buildingId = activeInterior.building.id;
@@ -123,6 +165,9 @@ input.onKeyPress('KeyP', () => timeController.togglePause());
 input.onKeyPress('BracketLeft', () => timeController.scrub(-1));
 input.onKeyPress('BracketRight', () => timeController.scrub(1));
 
+// Auto-save game state every 30 seconds
+let saveTimer = 0;
+
 // Resize handling
 const cleanupResize = setupResize(renderer, camera);
 
@@ -147,6 +192,13 @@ startLoop(
 
     const time = timeController.getTime();
 
+    // Auto-save timer
+    saveTimer += deltaTime;
+    if (saveTimer > 30) {
+      saveTimer = 0;
+      saveGameState(SEED, player, timeController);
+    }
+
     // Update sky and lighting
     exteriorScene.background = getSkyColor(time);
     updateLighting(time, directionalLight, hemisphereLight);
@@ -158,13 +210,16 @@ startLoop(
       buildingMaterial.userData.nightIntensity.value = windowIntensity;
     }
 
-    // Update player and camera kinematics
-    player.update(camera, input, deltaTime, activeInterior);
+    // Update player and camera kinematics (pause input movement if search modal is open)
+    if (!searchModal.isOpen()) {
+      player.update(camera, input, deltaTime, activeInterior);
+    }
 
-    // Update exterior simulation (traffic & NPCs)
+    // Update exterior simulation (traffic, NPCs, waypoint beacon)
     if (!activeInterior) {
       traffic.update(deltaTime, player.getPosition());
       npcs.update(time);
+      waypoint.update(time);
       chunkManager.update(player.getPosition());
     }
 
@@ -175,7 +230,7 @@ startLoop(
       } else {
         interactionPrompt.hide();
       }
-    } else if (player.getMode() === 'walk') {
+    } else if (player.getMode() === 'walk' && !searchModal.isOpen()) {
       const nearbyBuilding = findNearbyExteriorDoor(player.getPosition());
       if (nearbyBuilding) {
         interactionPrompt.show(`Press [E] to Enter ${nearbyBuilding.address}`);
@@ -209,12 +264,13 @@ startLoop(
 );
 
 // Log startup
-console.log(`Living City - Milestone 4: Roads, Traffic & NPCs
+console.log(`Living City - Milestone 5: Search & Persistence
 Seed: ${SEED}
 Chunk Size: 576m (8x8 cells)
 Controls:
   V: Toggle Walk / Fly mode
   E: Enter / Exit building door
+  K or /: Open Building Search & Waypoint modal
   WASD: Move, Shift: Run / Boost
   Space: Jump (Walk mode) / Up (Fly mode)
   C: Down (Fly mode)
