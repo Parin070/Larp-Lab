@@ -15,6 +15,8 @@ export function createInput(canvas) {
     locked: false
   };
 
+  const keyPressHandlers = {};
+
   const resetKeys = () => {
     keys.w = false;
     keys.a = false;
@@ -35,6 +37,11 @@ export function createInput(canvas) {
     if (e.code === 'Space') {
       e.preventDefault();
       keys.space = true;
+    }
+
+    // Special key handlers (P, [, ], F4, etc.)
+    if (keyPressHandlers[e.code]) {
+      keyPressHandlers[e.code](e);
     }
   };
 
@@ -76,6 +83,9 @@ export function createInput(canvas) {
   return {
     keys,
     mouse,
+    onKeyPress(code, handler) {
+      keyPressHandlers[code] = handler;
+    },
     consumeMouse() {
       const dx = mouse.dx;
       const dy = mouse.dy;
