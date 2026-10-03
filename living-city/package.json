@@ -1,0 +1,16 @@
+{
+  "name": "living-city",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "three": "^0.186.1",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  }
+}
