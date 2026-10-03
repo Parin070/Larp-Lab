@@ -8,7 +8,7 @@ export const CELL_PITCH = BLOCK_SIZE + ROAD_WIDTH; // 72m
 export const BUILDING_FOOTPRINT = 50; // 50m building size, centered in block
 
 // Building color palette (muted urban colors)
-const PALETTE = [
+export const PALETTE = [
   0xd9d9d9, // Light concrete
   0xa8a8a8, // Medium gray
   0x708090, // Slate gray
@@ -18,29 +18,92 @@ const PALETTE = [
 ];
 
 // Create window grid texture for emissive glow
-function createWindowTexture() {
+export function createWindowTexture() {
+  if (typeof document === 'undefined') {
+    return new THREE.Texture();
+  }
+
   const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
+  canvas.width = 32;
+  canvas.height = 32;
   const ctx = canvas.getContext('2d');
 
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, 64, 64);
-
-  // Draw 4x4 grid of lit windows
-  ctx.fillStyle = '#ffe599'; // Warm incandescent glow
-  for (let y = 8; y < 64; y += 16) {
-    for (let x = 8; x < 64; x += 16) {
-      ctx.fillRect(x, y, 8, 8);
-    }
+  if (ctx) {
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, 32, 32);
+    // Draw window pane
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(6, 6, 20, 20);
   }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(4, 8); // Repeat across building faces
 
   return texture;
+}
+
+// Single shared patched material for all buildings (1 draw call per mesh, 0 extra calls)
+export function createBuildingMaterial(windowTexture = createWindowTexture()) {
+  const material = new THREE.MeshLambertMaterial({
+    color: 0xffffff,
+    emissive: new THREE.Color(0xffe599),
+    emissiveIntensity: 1.0
+  });
+
+  material.userData.nightIntensity = { value: 0.0 };
+  material.userData.windowTexture = { value: windowTexture };
+
+  material.customProgramCacheKey = () => 'building_windows_shader_v1';
+
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uNightIntensity = material.userData.nightIntensity;
+    shader.uniforms.uWindowTexture = material.userData.windowTexture;
+
+    shader.vertexShader = `
+      varying vec3 vWorldPosition;
+      varying vec3 vWorldNormal;
+      ${shader.vertexShader}
+    `.replace(
+      '#include <worldpos_vertex>',
+      `
+      #include <worldpos_vertex>
+      #ifdef USE_INSTANCING
+        vec4 customWPos = modelMatrix * (instanceMatrix * vec4(position, 1.0));
+        mat3 instMat = mat3(instanceMatrix);
+        vec3 scales = vec3(length(instMat[0]), length(instMat[1]), length(instMat[2]));
+        vec3 instNormal = normal / max(scales, vec3(0.0001));
+        vec3 customWNorm = normalize(mat3(modelMatrix) * (instMat * instNormal));
+      #else
+        vec4 customWPos = modelMatrix * vec4(position, 1.0);
+        vec3 customWNorm = normalize(mat3(modelMatrix) * normal);
+      #endif
+      vWorldPosition = customWPos.xyz;
+      vWorldNormal = customWNorm;
+      `
+    );
+
+    shader.fragmentShader = `
+      uniform float uNightIntensity;
+      uniform sampler2D uWindowTexture;
+      varying vec3 vWorldPosition;
+      varying vec3 vWorldNormal;
+      ${shader.fragmentShader}
+    `.replace(
+      '#include <emissivemap_fragment>',
+      `
+      #include <emissivemap_fragment>
+      // Only apply window emissive to side walls (abs(normal.y) <= 0.5)
+      float isWall = step(abs(vWorldNormal.y), 0.5);
+      float wallCoord = abs(vWorldNormal.x) > 0.5 ? vWorldPosition.z : vWorldPosition.x;
+      vec2 winUV = vec2(wallCoord / 4.0, vWorldPosition.y / 4.0);
+      vec4 winColor = texture2D(uWindowTexture, winUV);
+      totalEmissiveRadiance = emissive * winColor.rgb * isWall * uNightIntensity;
+      `
+    );
+  };
+
+  return material;
 }
 
 // Generate pure data for determinism testing (Node-compatible)
@@ -67,19 +130,14 @@ export function generateCityData(rng, gridSize = GRID_SIZE) {
   return buildings;
 }
 
-export function generateCity(rng, gridSize = GRID_SIZE) {
+export function generateCity(rng, gridSize = GRID_SIZE, sharedBuildingMaterial = null) {
   const buildingData = generateCityData(rng, gridSize);
   const totalCount = buildingData.length;
 
   // 1. Buildings InstancedMesh
-  const windowTexture = createWindowTexture();
+  const windowTexture = sharedBuildingMaterial ? sharedBuildingMaterial.userData.windowTexture.value : createWindowTexture();
+  const buildingMaterial = sharedBuildingMaterial || createBuildingMaterial(windowTexture);
   const buildingGeometry = new THREE.BoxGeometry(1, 1, 1);
-  const buildingMaterial = new THREE.MeshLambertMaterial({
-    color: 0xffffff,
-    emissiveMap: windowTexture,
-    emissive: new THREE.Color(0xffe599),
-    emissiveIntensity: 0
-  });
 
   const buildingMesh = new THREE.InstancedMesh(
     buildingGeometry,
@@ -142,8 +200,10 @@ export function generateCity(rng, gridSize = GRID_SIZE) {
     data: buildingData,
     dispose() {
       buildingGeometry.dispose();
-      buildingMaterial.dispose();
-      windowTexture.dispose();
+      if (!sharedBuildingMaterial) {
+        buildingMaterial.dispose();
+        windowTexture.dispose();
+      }
       groundGeometry.dispose();
       groundMaterial.dispose();
       roadGeometry.dispose();
