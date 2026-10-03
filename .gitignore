@@ -1,0 +1,42 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs / misc
+*.log
+*.local
+coverage/
+tmp/
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+.next/
+.vercel/
+.cache/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Rust / Go
+target/
+bin/
+
+# Claude Code
+.claude/settings.local.json
