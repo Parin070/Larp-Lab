@@ -55,6 +55,7 @@ Geometries: ${info.memory.geometries}
 Textures: ${info.memory.textures}
 
 Camera: (${cameraPos.x.toFixed(1)}, ${cameraPos.y.toFixed(1)}, ${cameraPos.z.toFixed(1)})
+Controls: WASD move, Shift fast, Space up, C down
 Time: ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (${(time * 100).toFixed(1)}%)`;
     },
 
