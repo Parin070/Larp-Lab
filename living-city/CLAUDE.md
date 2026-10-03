@@ -50,7 +50,7 @@ Target: normal laptop, open URL, 60fps. Static hosting only. No backend.
 5. Search, save/load
 6. Event stream, SIEM dashboard, CTF incidents
 
-Current phase: 1
+Current phase: 6 (Phases 1-5 complete, Phase 6 event stream foundation complete)
 Work one phase at a time. Do not start next phase without being told.
 Commit after each working feature.
 
