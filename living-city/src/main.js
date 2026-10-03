@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { createRenderer, setupResize } from './core/renderer.js';
-import { createCamera, updateCamera } from './core/camera.js';
+import { createCamera } from './core/camera.js';
 import { createInput } from './core/input.js';
+import { createPlayer } from './core/player.js';
 import { startLoop } from './core/loop.js';
 import { createEventBus } from './events/bus.js';
 import { createChunkManager } from './world/chunkManager.js';
@@ -15,6 +16,9 @@ const SEED = 12345;
 const renderer = createRenderer();
 const scene = new THREE.Scene();
 const camera = createCamera(75, window.innerWidth / window.innerHeight);
+
+// Player controller (starts in fly mode at y=100m, toggle with 'V')
+const player = createPlayer(SEED, 'fly', new THREE.Vector3(0, 100, 0));
 
 // Event bus with simulation time
 const timeController = createTimeController();
@@ -37,7 +41,12 @@ scene.add(hemisphereLight);
 const input = createInput(renderer.domElement);
 const debugOverlay = createDebugOverlay(renderer);
 
-// Time control handlers
+// Mode & Time control handlers
+input.onKeyPress('KeyV', () => {
+  const newMode = player.toggleMode(camera);
+  bus.emit('player_mode_changed', { data: { mode: newMode } });
+});
+
 input.onKeyPress('KeyP', () => timeController.togglePause());
 input.onKeyPress('BracketLeft', () => timeController.scrub(-1));
 input.onKeyPress('BracketRight', () => timeController.scrub(1));
@@ -77,14 +86,14 @@ startLoop(
       buildingMaterial.userData.nightIntensity.value = windowIntensity;
     }
 
-    // Update camera
-    updateCamera(camera, input, deltaTime);
+    // Update player and camera kinematics
+    player.update(camera, input, deltaTime);
 
-    // Update chunk streaming
-    chunkManager.update(camera.position);
+    // Update chunk streaming around player position
+    chunkManager.update(player.getPosition());
 
     // Emit camera_moved only on cell change
-    const currentCell = getCameraCell(camera.position);
+    const currentCell = getCameraCell(player.getPosition());
     if (currentCell.x !== lastCameraCell.x || currentCell.z !== lastCameraCell.z) {
       bus.emit('camera_moved', {
         locationId: `${currentCell.x},${currentCell.z}`,
@@ -94,9 +103,10 @@ startLoop(
     }
 
     // Update debug overlay
-    debugOverlay.update(deltaTime, time, camera.position, {
+    debugOverlay.update(deltaTime, time, player.getPosition(), {
       isPaused: timeController.isPaused(),
-      loadedChunks: chunkManager.getLoadedChunkCount()
+      loadedChunks: chunkManager.getLoadedChunkCount(),
+      playerMode: player.getMode().toUpperCase()
     });
   },
   () => {
@@ -105,10 +115,13 @@ startLoop(
 );
 
 // Log startup
-console.log(`Living City - Milestone 1: Chunk Streaming
+console.log(`Living City - Milestone 2: Walking Mode & Collision
 Seed: ${SEED}
 Chunk Size: 576m (8x8 cells)
-Load Radius: 2 (5x5 = 25 chunks)
-Press F3 for full debug, F4 for telemetry
-Click to lock mouse, WASD to move, Shift to boost, Space/C to fly
-P: pause, [ / ]: scrub time`);
+Controls:
+  V: Toggle Walk / Fly mode
+  WASD: Move, Shift: Run / Boost
+  Space: Jump (Walk mode) / Up (Fly mode)
+  C: Down (Fly mode)
+  P: Pause time, [ / ]: Scrub time
+  F3: Full HUD, F4: Telemetry`);
