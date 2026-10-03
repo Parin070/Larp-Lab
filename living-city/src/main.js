@@ -42,6 +42,11 @@ scene.add(hemisphereLight);
 const input = createInput(renderer.domElement);
 const debugOverlay = createDebugOverlay(renderer);
 
+// Time control handlers
+input.onKeyPress('KeyP', () => timeController.togglePause());
+input.onKeyPress('BracketLeft', () => timeController.scrub(-1));
+input.onKeyPress('BracketRight', () => timeController.scrub(1));
+
 // Resize handling
 const cleanupResize = setupResize(renderer, camera);
 
@@ -72,7 +77,11 @@ startLoop(
 
     // Update building window glow
     const windowIntensity = getWindowIntensity(time);
-    city.buildingMaterial.emissiveIntensity = windowIntensity;
+    if (city.buildingMaterial.userData.nightIntensity) {
+      city.buildingMaterial.userData.nightIntensity.value = windowIntensity;
+    } else {
+      city.buildingMaterial.emissiveIntensity = windowIntensity;
+    }
 
     // Update camera
     updateCamera(camera, input, deltaTime);
@@ -88,7 +97,9 @@ startLoop(
     }
 
     // Update debug overlay
-    debugOverlay.update(deltaTime, time, camera.position);
+    debugOverlay.update(deltaTime, time, camera.position, {
+      isPaused: timeController.isPaused()
+    });
   },
   () => {
     renderer.render(scene, camera);
