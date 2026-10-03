@@ -21,22 +21,27 @@ export function updateCamera(camera, input, deltaTime) {
   camera.rotation.x -= mouseDelta.dy * sensitivity;
   camera.rotation.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, camera.rotation.x));
 
-  // Movement
-  const velocity = new THREE.Vector3();
+  // Horizontal movement (camera-relative)
+  const horizontalVelocity = new THREE.Vector3();
 
-  if (input.keys.w) velocity.z -= 1;
-  if (input.keys.s) velocity.z += 1;
-  if (input.keys.a) velocity.x -= 1;
-  if (input.keys.d) velocity.x += 1;
-  if (input.keys.space) velocity.y += 1;
-  if (input.keys.c) velocity.y -= 1;
+  if (input.keys.w) horizontalVelocity.z -= 1;
+  if (input.keys.s) horizontalVelocity.z += 1;
+  if (input.keys.a) horizontalVelocity.x -= 1;
+  if (input.keys.d) horizontalVelocity.x += 1;
 
-  if (velocity.length() > 0) {
-    velocity.normalize();
-    velocity.multiplyScalar(speed * deltaTime);
+  if (horizontalVelocity.length() > 0) {
+    horizontalVelocity.normalize();
+    horizontalVelocity.multiplyScalar(speed * deltaTime);
+    horizontalVelocity.applyQuaternion(camera.quaternion);
+    camera.position.add(horizontalVelocity);
+  }
 
-    // Transform velocity to camera space
-    velocity.applyQuaternion(camera.quaternion);
-    camera.position.add(velocity);
+  // Vertical movement (world-space Y axis, pitch-independent)
+  let verticalVelocity = 0;
+  if (input.keys.space) verticalVelocity += 1;
+  if (input.keys.c) verticalVelocity -= 1;
+
+  if (verticalVelocity !== 0) {
+    camera.position.y += verticalVelocity * speed * deltaTime;
   }
 }
