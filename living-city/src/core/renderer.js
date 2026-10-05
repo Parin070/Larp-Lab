@@ -9,6 +9,8 @@ export function createRenderer() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = false; // No shadows per CLAUDE.md
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
 
   document.body.appendChild(renderer.domElement);
 
