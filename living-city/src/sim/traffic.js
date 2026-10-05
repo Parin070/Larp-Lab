@@ -4,31 +4,122 @@ import { createRNG } from '../core/rng.js';
 import { CELL_PITCH } from '../world/city.js';
 import { getLanePosition, getNextIntersection } from '../world/roadGraph.js';
 
-const CAR_COLORS = [
-  0xd32f2f, // Red
-  0x1976d2, // Blue
-  0xfbc02d, // Yellow
-  0x388e3c, // Green
-  0x757575, // Silver
-  0x212121, // Black
-  0xffffff  // White
+export const CAR_COLORS = [
+  0xd90429, // Cherry Red
+  0x2563eb, // Electric Blue
+  0xffd166, // Sunshine Yellow / Taxi
+  0x10b981, // Emerald Green
+  0xf97316, // Sunset Orange
+  0x8b5cf6, // Neon Purple
+  0x1e293b, // Midnight Black
+  0xf8fafc, // Pearl White
+  0x06b6d4  // Aqua Cyan
 ];
+
+// Helper to assign RGB vertex colors to a geometry
+function colorGeom(geom, hex) {
+  const c = new THREE.Color(hex);
+  const count = geom.attributes.position.count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geom;
+}
 
 export function createTrafficSystem(worldSeed, maxCars = 64) {
   const rng = createRNG(worldSeed + 54321);
 
-  // 1. Build composite low-poly car geometry (chassis + cabin)
-  const chassisGeom = new THREE.BoxGeometry(1.8, 0.6, 4.0);
-  chassisGeom.translate(0, 0.3, 0);
+  // 1. Build composite low-poly vehicle geometry
+  const parts = [];
 
-  const cabinGeom = new THREE.BoxGeometry(1.6, 0.6, 2.2);
-  cabinGeom.translate(0, 0.9, -0.2);
+  // Main chassis
+  const chassisGeom = new THREE.BoxGeometry(1.85, 0.55, 4.0);
+  chassisGeom.translate(0, 0.45, 0);
+  colorGeom(chassisGeom, 0xffffff); // Tints with instance color
+  parts.push(chassisGeom);
 
-  const carGeometry = BufferGeometryUtils.mergeGeometries([chassisGeom, cabinGeom], false);
-  chassisGeom.dispose();
-  cabinGeom.dispose();
+  // Cabin
+  const cabinGeom = new THREE.BoxGeometry(1.6, 0.6, 2.1);
+  cabinGeom.translate(0, 1.0, -0.2);
+  colorGeom(cabinGeom, 0xffffff); // Tints with instance color
+  parts.push(cabinGeom);
 
-  const carMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  // Tinted Windshield (Front)
+  const windshield = new THREE.BoxGeometry(1.52, 0.48, 0.1);
+  windshield.translate(0, 0.98, 0.85);
+  colorGeom(windshield, 0x1e293b);
+  parts.push(windshield);
+
+  // Tinted Rear Window
+  const rearWindow = new THREE.BoxGeometry(1.52, 0.48, 0.1);
+  rearWindow.translate(0, 0.98, -1.25);
+  colorGeom(rearWindow, 0x1e293b);
+  parts.push(rearWindow);
+
+  // Front Headlights (Bright Yellow Glow)
+  const headL = new THREE.BoxGeometry(0.35, 0.18, 0.1);
+  headL.translate(-0.65, 0.52, 2.02);
+  colorGeom(headL, 0xfffee0);
+  parts.push(headL);
+
+  const headR = new THREE.BoxGeometry(0.35, 0.18, 0.1);
+  headR.translate(0.65, 0.52, 2.02);
+  colorGeom(headR, 0xfffee0);
+  parts.push(headR);
+
+  // Rear Taillights (Ruby Red)
+  const tailL = new THREE.BoxGeometry(0.35, 0.18, 0.1);
+  tailL.translate(-0.65, 0.52, -2.02);
+  colorGeom(tailL, 0xff0033);
+  parts.push(tailL);
+
+  const tailR = new THREE.BoxGeometry(0.35, 0.18, 0.1);
+  tailR.translate(0.65, 0.52, -2.02);
+  colorGeom(tailR, 0xff0033);
+  parts.push(tailR);
+
+  // Front & Rear Bumpers (Dark Slate)
+  const frontBumper = new THREE.BoxGeometry(1.9, 0.22, 0.2);
+  frontBumper.translate(0, 0.3, 2.02);
+  colorGeom(frontBumper, 0x0f172a);
+  parts.push(frontBumper);
+
+  const rearBumper = new THREE.BoxGeometry(1.9, 0.22, 0.2);
+  rearBumper.translate(0, 0.3, -2.02);
+  colorGeom(rearBumper, 0x0f172a);
+  parts.push(rearBumper);
+
+  // 4 Low-Poly Chunky Wheels (Tires + Silver Hubcap Rims)
+  const wheelPositions = [
+    [-0.95, 0.32, 1.2],
+    [0.95, 0.32, 1.2],
+    [-0.95, 0.32, -1.2],
+    [0.95, 0.32, -1.2]
+  ];
+
+  wheelPositions.forEach(([wx, wy, wz]) => {
+    // Black Rubber Tire
+    const tire = new THREE.BoxGeometry(0.24, 0.64, 0.64);
+    tire.translate(wx, wy, wz);
+    colorGeom(tire, 0x0f172a);
+    parts.push(tire);
+
+    // Silver Hubcap Rim
+    const rim = new THREE.BoxGeometry(0.04, 0.32, 0.32);
+    const rimX = wx < 0 ? wx - 0.12 : wx + 0.12;
+    rim.translate(rimX, wy, wz);
+    colorGeom(rim, 0xe2e8f0);
+    parts.push(rim);
+  });
+
+  const carGeometry = BufferGeometryUtils.mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+
+  const carMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
   const instancedMesh = new THREE.InstancedMesh(carGeometry, carMaterial, maxCars);
 
   // Pre-allocate transformation objects
