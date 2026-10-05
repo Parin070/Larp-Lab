@@ -3,15 +3,32 @@ import { generateInterior } from './interiorGenerator.js';
 
 export function createInteriorScene(building) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a1a24);
+  scene.background = new THREE.Color(0x1e293b);
 
-  // Interior lighting
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+  // Interior lighting: Clean ambient + multi-point warm illumination
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
   scene.add(ambientLight);
 
-  const ceilingLight = new THREE.PointLight(0xfffaed, 1.2, 35);
-  ceilingLight.position.set(0, 3.0, 0);
+  const ceilingLight = new THREE.PointLight(0xfff8eb, 1.5, 45);
+  ceilingLight.position.set(0, 3.1, 0);
   scene.add(ceilingLight);
+
+  // Corner fill lights for sub-rooms
+  const fillLight1 = new THREE.PointLight(0xfffaed, 0.8, 25);
+  fillLight1.position.set(-10, 3.0, -10);
+  scene.add(fillLight1);
+
+  const fillLight2 = new THREE.PointLight(0xfffaed, 0.8, 25);
+  fillLight2.position.set(10, 3.0, -10);
+  scene.add(fillLight2);
+
+  const fillLight3 = new THREE.PointLight(0xfffaed, 0.8, 25);
+  fillLight3.position.set(-10, 3.0, 10);
+  scene.add(fillLight3);
+
+  const fillLight4 = new THREE.PointLight(0xfffaed, 0.8, 25);
+  fillLight4.position.set(10, 3.0, 10);
+  scene.add(fillLight4);
 
   const interior = generateInterior(building.seed);
   interior.meshes.forEach((m) => scene.add(m));
@@ -62,6 +79,10 @@ export function createInteriorScene(building) {
       interior.dispose();
       ambientLight.dispose();
       ceilingLight.dispose();
+      fillLight1.dispose();
+      fillLight2.dispose();
+      fillLight3.dispose();
+      fillLight4.dispose();
     }
   };
 }
