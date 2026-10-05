@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 import { createRNG } from '../src/core/rng.js';
-import { generateCityData } from '../src/world/city.js';
+import { generateCityData, PALETTE } from '../src/world/city.js';
 
 // Simple FNV-1a hash algorithm for data determinism
 function hashCityData(data) {
@@ -55,6 +55,6 @@ test('building data values are valid numbers within ranges', () => {
     expect(b.height).toBeGreaterThanOrEqual(10);
     expect(b.height).toBeLessThanOrEqual(60);
     expect(b.colorIndex).toBeGreaterThanOrEqual(0);
-    expect(b.colorIndex).toBeLessThanOrEqual(5);
+    expect(b.colorIndex).toBeLessThanOrEqual(PALETTE.length - 1);
   }
 });
