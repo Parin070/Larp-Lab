@@ -48,13 +48,15 @@ export function createTimeController(cycleSpeed = CYCLE_SPEED) {
   };
 }
 
-// Sky color keyframes
+// Sky color keyframes (Dude Theft Wars vibrant arcade sky)
 const skyColors = [
-  { time: 0.0, color: new THREE.Color(0x0a0a1a) },   // midnight
-  { time: 0.25, color: new THREE.Color(0xff8844) },  // dawn
-  { time: 0.5, color: new THREE.Color(0x87ceeb) },   // noon
-  { time: 0.75, color: new THREE.Color(0xff6633) },  // dusk
-  { time: 1.0, color: new THREE.Color(0x0a0a1a) }    // midnight
+  { time: 0.0, color: new THREE.Color(0x0d1326) },   // midnight (stylish deep cartoon blue)
+  { time: 0.22, color: new THREE.Color(0x481b5c) },  // early dawn purple
+  { time: 0.28, color: new THREE.Color(0xff8844) },  // golden sunrise
+  { time: 0.5, color: new THREE.Color(0x38bdf8) },   // noon (vibrant tropical cyan sky)
+  { time: 0.72, color: new THREE.Color(0xff6b81) },  // sunset coral peach
+  { time: 0.80, color: new THREE.Color(0x341f5c) },  // dusk violet
+  { time: 1.0, color: new THREE.Color(0x0d1326) }    // midnight
 ];
 
 function lerpColor(a, b, t) {
@@ -83,26 +85,27 @@ export function updateLighting(time, directionalLight, hemisphereLight) {
     Math.sin(angle) * 500,
     0
   );
-  directionalLight.intensity = Math.max(0, Math.sin(angle));
+  directionalLight.color.setHex(0xfff8db);
+  directionalLight.intensity = Math.max(0, Math.sin(angle)) * 1.35;
 
-  // HemisphereLight with higher night minimum for readability
+  // HemisphereLight with vibrant cartoon ambient reflections
   const sunElevation = Math.sin(angle);
   const isNight = sunElevation < 0;
 
   if (isNight) {
-    hemisphereLight.color.setHex(0x222b45); // Dark blue sky
-    hemisphereLight.groundColor.setHex(0x161622);
-    hemisphereLight.intensity = 0.35; // Raised from 0.2 for face readability
+    hemisphereLight.color.setHex(0x1e272e); // Stylized deep cartoon night sky
+    hemisphereLight.groundColor.setHex(0x0c1017);
+    hemisphereLight.intensity = 0.40; // High night visibility
   } else if (sunElevation < 0.3) {
     // Dawn/Dusk
     hemisphereLight.color.setHex(0xff8844);
-    hemisphereLight.groundColor.setHex(0x3d2b1f);
-    hemisphereLight.intensity = 0.50;
-  } else {
-    // Day
-    hemisphereLight.color.setHex(0x99ccff);
-    hemisphereLight.groundColor.setHex(0x555555);
+    hemisphereLight.groundColor.setHex(0x574b90);
     hemisphereLight.intensity = 0.65;
+  } else {
+    // Day: Vibrant sky blue + lush lawn green ground bounce
+    hemisphereLight.color.setHex(0x90e0ef);
+    hemisphereLight.groundColor.setHex(0x52b788);
+    hemisphereLight.intensity = 0.80;
   }
 }
 
