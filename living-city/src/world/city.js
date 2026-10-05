@@ -7,14 +7,20 @@ export const ROAD_WIDTH = 8;         // 8m road width
 export const CELL_PITCH = BLOCK_SIZE + ROAD_WIDTH; // 72m
 export const BUILDING_FOOTPRINT = 50; // 50m building size, centered in block
 
-// Building color palette (muted urban colors)
+// Building color palette (Dude Theft Wars vibrant urban sandbox colors)
 export const PALETTE = [
-  0xd9d9d9, // Light concrete
-  0xa8a8a8, // Medium gray
-  0x708090, // Slate gray
-  0xb0c4de, // Light steel blue
-  0x8b7d6b, // Sandstone
-  0x696969  // Dim gray
+  0xfb8500, // Vibrant Orange
+  0x219ebc, // Sky Blue
+  0x06d6a0, // Mint Green
+  0xef476f, // Coral Pink
+  0xf8f9fa, // Crisp White
+  0xd90429, // Cherry Red
+  0x8338ec, // Vivid Purple
+  0x2ec4b6, // Aqua Teal
+  0xffbe0b, // Golden Yellow
+  0x3a86ff, // Electric Blue
+  0xe07a5f, // Terracotta
+  0xffbe76  // Pastel Peach
 ];
 
 // Create window grid texture for emissive glow
@@ -24,16 +30,19 @@ export function createWindowTexture() {
   }
 
   const canvas = document.createElement('canvas');
-  canvas.width = 32;
-  canvas.height = 32;
+  canvas.width = 64;
+  canvas.height = 64;
   const ctx = canvas.getContext('2d');
 
   if (ctx) {
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, 32, 32);
-    // Draw window pane
+    ctx.fillStyle = '#10172a'; // Deep slate frame
+    ctx.fillRect(0, 0, 64, 64);
+    // Draw crisp window panes with frame divider
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(6, 6, 20, 20);
+    ctx.fillRect(8, 8, 20, 20);
+    ctx.fillRect(36, 8, 20, 20);
+    ctx.fillRect(8, 36, 20, 20);
+    ctx.fillRect(36, 36, 20, 20);
   }
 
   const texture = new THREE.CanvasTexture(canvas);
