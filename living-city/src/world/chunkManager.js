@@ -11,7 +11,7 @@ export function createChunkManager(worldSeed, scene, bus, loadRadius = 2) {
   const sharedBoxGeometry = new THREE.BoxGeometry(1, 1, 1);
   const sharedBuildingMaterial = createBuildingMaterial();
   const sharedStaticMaterial = new THREE.MeshLambertMaterial({
-    color: 0x2e2e2e
+    vertexColors: true
   });
 
   let lastPlayerChunkX = null;
