@@ -52,7 +52,7 @@ Target: normal laptop, open URL, 60fps. Static hosting only. No backend.
 
 Current phase: 5 (Phases 1-5 complete, low-poly Dude Theft Wars theme overhaul)
 Work one phase at a time. Do not start next phase without being told.
-Commit after each working feature.
+Commit after each working feature and commit each file separately, do not "git add .".
 
 ## Workflow
 - Plan first for any task touching more than 2 files. Show plan, wait.
