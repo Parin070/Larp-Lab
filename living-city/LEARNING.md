@@ -1,26 +1,31 @@
 # Learning from Living City
 
-A guide to building a deterministic browser 3D city from scratch. Every system explained: what it does, why this approach, how to build it yourself.
+A comprehensive technical and pedagogical guide to building a high-performance, deterministic browser 3D low-poly city and arcade sandbox game from scratch. Every subsystem explained: what it does, the core mathematical technique, why this approach was chosen, exact code references, and how to build it yourself.
+
+---
 
 ## Table of Contents
 
 1. [Seeded PRNG (mulberry32) and Why Determinism Matters](#1-seeded-prng-mulberry32-and-why-determinism-matters)
-2. [Chunk Streaming and the Pure Chunk Generator](#2-chunk-streaming-and-the-pure-chunk-generator)
-3. [InstancedMesh and Draw Call Budgeting](#3-instancedmesh-and-draw-call-budgeting)
+2. [Chunk Streaming, Static Geometry Merging, and Street Micro-Props](#2-chunk-streaming-static-geometry-merging-and-street-micro-props)
+3. [InstancedMesh, Draw Call Budgeting, and Vertex-Colored Geometry Merging](#3-instancedmesh-draw-call-budgeting-and-vertex-colored-geometry-merging)
 4. [The Window Shader Patch (onBeforeCompile, World-Space Tiling, instanceMatrix)](#4-the-window-shader-patch-onbeforecompile-world-space-tiling-instancematrix)
-5. [Day/Night Cycle (Sun Angle, Smoothstep, Hemisphere Light)](#5-daynight-cycle-sun-angle-smoothstep-hemisphere-light)
+5. [Day/Night Cycle, Tropical Sky Palette, and ACES Filmic Tone Mapping](#5-daynight-cycle-tropical-sky-palette-and-aces-filmic-tone-mapping)
 6. [Camera and Input Handling (Fly Camera, e.code, Stuck-Key Fix, Pointer Lock)](#6-camera-and-input-handling-fly-camera-ecode-stuck-key-fix-pointer-lock)
-7. [Walk Mode and AABB Collision Against Neighboring Cells](#7-walk-mode-and-aabb-collision-against-neighboring-cells)
-8. [BSP Interior Generation and the Separate Interior Scene with Disposal](#8-bsp-interior-generation-and-the-separate-interior-scene-with-disposal)
-9. [Road Graph, Traffic, and the Near/Far NPC Simulation](#9-road-graph-traffic-and-the-nearfar-npc-simulation)
+7. [Walk Mode, Gravity, and Spatial AABB Collision Resolution](#7-walk-mode-gravity-and-spatial-aabb-collision-resolution)
+8. [BSP Interior Generation, Micro-Props, Multi-Point Lighting, and Scene Disposal](#8-bsp-interior-generation-micro-props-multi-point-lighting-and-scene-disposal)
+9. [Road Graph, Arcade Traffic, and Composite Low-Poly NPC Simulation](#9-road-graph-arcade-traffic-and-composite-low-poly-npc-simulation)
 10. [Search Index and IndexedDB Persistence](#10-search-index-and-indexeddb-persistence)
-11. [Event Bus and Event Log](#11-event-bus-and-event-log)
+11. [Event Bus and System Decoupling](#11-event-bus-and-system-decoupling)
 12. [Testing: What the Tests Prove and How Determinism is Tested in Node Without WebGL](#12-testing-what-the-tests-prove-and-how-determinism-is-tested-in-node-without-webgl)
-13. [How the AI Worked on This](#13-how-the-ai-worked-on-this)
-14. [Bugs We Hit and What They Taught](#14-bugs-we-hit-and-what-they-taught)
-15. [Prompting Lessons](#15-prompting-lessons)
-16. [Learning Path](#16-learning-path)
-17. [Glossary](#17-glossary)
+13. [How the AI Worked on This (CLAUDE.md, Planning Gates, and Phase Governance)](#13-how-the-ai-worked-on-this-claudemd-planning-gates-and-phase-governance)
+14. [Bugs We Hit and What They Taught (Post-Mortem Database)](#14-bugs-we-hit-and-what-they-taught-post-mortem-database)
+15. [Prompting Lessons for Agentic Software Engineering](#15-prompting-lessons-for-agentic-software-engineering)
+16. [Open-Source 3D Asset Ecosystems & Web Game Design Patterns](#16-open-source-3d-asset-ecosystems--web-game-design-patterns)
+17. [The Road to a Low-Poly Sandbox Game: Phased Evolution Roadmap](#17-the-road-to-a-low-poly-sandbox-game-phased-evolution-roadmap)
+18. [Web Game Security, Privacy, and Repository Hygiene](#18-web-game-security-privacy-and-repository-hygiene)
+19. [Learning Path: Modern 3D Web Game Engineering Curriculum](#19-learning-path-modern-3d-web-game-engineering-curriculum)
+20. [Glossary of Procedural Generation and 3D Game Engine Terminology](#20-glossary-of-procedural-generation-and-3d-game-engine-terminology)
 
 ---
 
@@ -30,7 +35,7 @@ A guide to building a deterministic browser 3D city from scratch. Every system e
 Generates random-looking numbers from an initial number or text called a **seed**. When given the same seed, it produces the exact same sequence of numbers every single time. Standard `Math.random()` is completely forbidden in this project.
 
 ### 2. The core technique or concept
-In JavaScript, `Math.random()` pulls from system entropy (unpredictable hardware noise). A **pseudorandom number generator (PRNG)** is an algorithmic math formula: you give it an internal integer state, and each step mathematically scrambles that integer to output a float between `0.0` and `1.0`. **Determinism** means: `Seed + Code = Exact Same Result`. If player A and player B load seed `12345`, every building height, color, door position, and NPC route is identical without transferring gigabytes of world geometry over the network.
+In JavaScript, `Math.random()` pulls from system entropy (unpredictable hardware noise). A **pseudorandom number generator (PRNG)** is an algorithmic math formula: you give it an internal integer state, and each step mathematically scrambles that integer to output a float between `0.0` and `1.0`. **Determinism** means: `Seed + Code = Exact Same Result`. If player A and player B load seed `12345`, every building height, color, door position, tree placement, and NPC route is identical without transferring gigabytes of world geometry over the network.
 
 ### 3. Where it lives
 - `src/core/rng.js` — `createRNG(seed)`, `hashString(str)`
@@ -74,50 +79,56 @@ export function createRNG(seed = 12345) {
 
 ---
 
-## 2. Chunk Streaming and the Pure Chunk Generator
+## 2. Chunk Streaming, Static Geometry Merging, and Street Micro-Props
 
 ### 1. What it does, in plain language
-Divides the infinite city into a grid of 576m × 576m square tiles called **chunks** (each containing 8 × 8 = 64 building blocks). As the player moves, new chunks ahead are generated and loaded into the 3D scene, while distant chunks behind the player are deleted to keep memory usage low and frame rates at a smooth 60 FPS.
+Divides the infinite city into a grid of 576m × 576m square tiles called **chunks** (each containing 8 × 8 = 64 building blocks). As the player moves, new chunks ahead are generated and loaded into the 3D scene, while distant chunks behind the player are deleted to keep memory usage low and frame rates at a smooth 60 FPS. Every chunk merges roads, dashed centerlines, crosswalks, sidewalks, lush grass lawns, low-poly pine trees, street lamps, and fire hydrants into a single mesh costing only 1 draw call.
 
 ### 2. The core technique or concept
 - **Spatial Partitioning (Chunks):** Instead of generating a single massive city model that crashes mobile/laptop GPUs, the world is sliced into local coordinates `(cx, cz)`.
 - **Pure Data Generator:** The function `generateChunkData` calculates building positions, heights, colors, addresses, and door locations as plain JavaScript objects without touching Three.js, WebGL, or the DOM.
+- **Static Geometry Merging with Vertex Colors:** Instead of adding hundreds of individual Three.js meshes for road asphalt, white zebra stripes, yellow dashed lane dividers, raised concrete sidewalks, lawn slabs, multi-tiered green tree foliage, street lamps, and red fire hydrants, each piece has its RGB color assigned to its vertices using `colorGeom(geom, hex)`. All parts are then baked into a single `BufferGeometry` via `BufferGeometryUtils.mergeGeometries()`.
 - **Independent Seed Hashing:** Each chunk's seed is computed by hashing `chunk_${worldSeed}_${cx}_${cz}`. This means chunk `(5, 2)` generates the exact same buildings whether the player walks there immediately or teleports there after visiting 100 other chunks.
 - **Time-Sliced Action Queue:** Loading 25 chunks in a single frame causes a noticeable stutter (jank). The `chunkManager` queues loads and unloads, processing at most 1 chunk per animation frame.
 
 ### 3. Where it lives
 - `src/world/chunk.js` — `generateChunkData(worldSeed, cx, cz)`, `createChunkMeshes(...)`, `CHUNK_SIZE = 576`, `CHUNK_CELLS = 8`
-- `src/world/chunkManager.js` — `createChunkManager(...)`, `planChunkUpdates()`, `processQueue()`
+- `src/world/chunkManager.js` — `createChunkManager(...)`, `planChunkUpdates()`, `processQueue()`, shared `staticMaterial` with `vertexColors: true`
 
 ### 4. The key code idea
-From `src/world/chunk.js:11-21`:
+From `src/world/chunk.js:142-182`:
 
 ```js
-export function generateChunkData(worldSeed, cx, cz) {
-  const chunkSeed = hashString(`chunk_${worldSeed}_${cx}_${cz}`);
-  const rng = createRNG(chunkSeed);
-  const buildings = [];
+// Assign RGB vertex colors to geometry before merging
+function colorGeom(geom, hex) {
+  const c = new THREE.Color(hex);
+  const count = geom.attributes.position.count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geom;
+}
 
-  for (let lz = 0; lz < CHUNK_CELLS; lz++) {
-    for (let lx = 0; lx < CHUNK_CELLS; lx++) {
-      const x = cx * CHUNK_SIZE - HALF_CHUNK + lx * CELL_PITCH + CELL_PITCH / 2;
-      const z = cz * CHUNK_SIZE - HALF_CHUNK + lz * CELL_PITCH + CELL_PITCH / 2;
-      const height = rng.nextFloat(12, 65);
+// Merge asphalt, road markings, lawns, trees, and props into 1 static mesh
+const mergedStatic = BufferGeometryUtils.mergeGeometries(staticGeometries, false);
+const staticMesh = new THREE.Mesh(mergedStatic, sharedStaticMaterial);
 ```
 
-- **Line 12:** Computes a unique 32-bit seed string incorporating the world seed and chunk coordinate `(cx, cz)`.
-- **Line 13:** Instantiates an isolated PRNG stream for this chunk only.
-- **Lines 17-18:** Loops through an 8 × 8 cell grid in chunk-local space `(lx, lz)`.
-- **Lines 19-20:** Translates local grid indices into continuous world space coordinates `(x, z)` offset from chunk center.
-- **Line 21:** Pulls random building height in `[12m, 65m]` deterministically.
+- **Lines 142-152:** Iterates through all vertices in a geometry and assigns an RGB `Float32Array` attribute named `'color'`.
+- **Lines 179-180:** Merges hundreds of distinct static elements (roads, trees, hydrants) into one unified geometry.
+- **Line 181:** Renders the combined geometry using a single `MeshLambertMaterial({ vertexColors: true })` — reducing 200+ draw calls per chunk to exactly 1 draw call!
 
 ### 5. Why this approach and not the obvious one
 - **Avoids sequential seed drift:** If chunks used one global RNG stream, visiting chunk A then B would produce different results than visiting chunk B then A. Chunk-hashed seeding eliminates sequence dependence.
-- **Decouples simulation from graphics:** Separating pure data generation from Three.js mesh creation allows fast headless testing in Vitest (Node.js) without needing WebGL canvas mocks.
+- **Eliminates draw call bottlenecks:** Rendering trees, hydrants, sidewalks, and road markings as separate meshes would create 5,000+ draw calls and drop frame rates to <5 FPS. Merging geometries with vertex colors costs 1 draw call per chunk.
 - **Prevents frame drops:** Processing at most 1 chunk per frame via `processQueue()` guarantees the main render loop stays under the 16.6ms budget.
 
 ### 6. What to study
-- **Red Blob Games:** "Introduction to Spatial Hashing and Grids".
+- **Three.js Manual:** `BufferGeometryUtils.mergeGeometries`, `BufferAttribute`, Vertex Colors.
 - **Articles / Topics to search:** "Infinite voxel / procedural terrain chunk streaming architecture", "Time-slicing expensive computations in requestAnimationFrame".
 
 ### 7. Try it yourself
@@ -127,69 +138,87 @@ export function generateChunkData(worldSeed, cx, cz) {
 
 ---
 
-## 3. InstancedMesh and Draw Call Budgeting
+## 3. InstancedMesh, Draw Call Budgeting, and Vertex-Colored Geometry Merging
 
 ### 1. What it does, in plain language
-Renders thousands of identical buildings as a single combined mesh instead of individual objects. Without instancing, drawing 3,200 buildings (50 chunks × 64 buildings each) would trigger 3,200 GPU draw calls per frame and drop the frame rate to 10 FPS. With `InstancedMesh`, it becomes 50 draw calls total (1 per chunk).
+Renders thousands of skyscrapers, dozens of detailed vehicles, and hordes of streetwear NPCs at a locked 60 FPS. Instead of creating thousands of separate 3D objects, `InstancedMesh` batches all instances of a model into a single GPU draw call. Multi-part models (characters with heads, sunglasses, baseball caps, shirts, jeans, and sneakers) are constructed from multiple boxes, merged into a single geometry with vertex colors, and then instanced.
 
 ### 2. The core technique or concept
 A **draw call** is a command from JavaScript to the GPU: "draw this geometry with this material." Each draw call has overhead (state binding, uniform uploads, validation). Modern integrated GPUs start slowing down around 200-300 draw calls per frame.
 
-**InstancedMesh** tells the GPU: "here is one box geometry and one material, but draw it 64 times with different transforms (position, rotation, scale) and colors." The GPU processes all 64 buildings in parallel with a single draw call. The transforms are packed into a matrix array (`instanceMatrix`) and the per-building colors are stored in an `instanceColor` attribute.
+**InstancedMesh** tells the GPU: "here is one geometry and one material, but draw it N times with different transforms (position, rotation, scale) and per-instance colors."
 
-**Shared Resources:** Instead of creating 50 separate box geometries and 50 separate materials (one per chunk), this project creates a single `BoxGeometry(1, 1, 1)` and a single `MeshLambertMaterial` at startup, then reuses them across all chunks.
+**The White Base-Color Multiplication Trick:**
+When using `MeshLambertMaterial({ vertexColors: true })` with `InstancedMesh`, Three.js calculates the final surface color as:
+$$\text{Final Color} = \text{Vertex Color} \times \text{Instance Color} \times \text{Material Color}$$
+To allow cars and NPC shirts to be dynamically tinted with vibrant colors while letting sunglasses, baseball caps, skin tones, sneakers, headlights, and taillights keep their exact colors:
+- Parts that should be dynamically tinted (car chassis, NPC torso/shirt) are assigned pure white vertex colors (`0xffffff`). Since multiplying by 1.0 preserves the color, `instancedMesh.setColorAt(i, shirtColor)` tints the shirt cleanly.
+- Parts with fixed colors (e.g. skin `0xfcd34d`, black sunglasses `0x09090b`, denim jeans `0x1e3a8a`, red sneakers `0xdc2626`) are given their explicit vertex colors. When multiplied by the instance tint, they retain their distinct stylized appearance.
 
 ### 3. Where it lives
-- `src/world/chunk.js:77-107` — `createChunkMeshes()` creates one `InstancedMesh` with 64 building instances per chunk
-- `src/world/chunkManager.js:9-14` — Shared geometry and materials declared once, reused for all chunks
+- `src/sim/npcRenderer.js:37-133` — Composite humanoid model geometry merging and instancing
+- `src/sim/traffic.js:37-126` — Composite vehicle geometry merging and instancing
+- `src/world/chunk.js:77-107` — Skyscraper building instancing (64 buildings per chunk)
 
 ### 4. The key code idea
-From `src/world/chunk.js:77-107`:
+From `src/sim/npcRenderer.js:37-124`:
 
 ```js
-const buildingMesh = new THREE.InstancedMesh(
-  sharedBoxGeometry,
-  sharedBuildingMaterial,
-  totalCount
-);
+const parts = [];
 
-const matrix = new THREE.Matrix4();
-const position = new THREE.Vector3();
-const scale = new THREE.Vector3();
+// Torso / Shirt (tints with instance color)
+const torso = new THREE.BoxGeometry(0.52, 0.65, 0.32);
+torso.translate(0, 0.95, 0);
+colorGeom(torso, 0xffffff); // White base for clean instance multiplication
+parts.push(torso);
 
-chunkData.forEach((b, i) => {
-  position.set(b.x, b.height / 2, b.z);
-  scale.set(BUILDING_FOOTPRINT, b.height, BUILDING_FOOTPRINT);
-  matrix.compose(position, rotation, scale);
-  buildingMesh.setMatrixAt(i, matrix);
+// Head (Stylized cartoon skin tone)
+const head = new THREE.BoxGeometry(0.38, 0.38, 0.38);
+head.translate(0, 1.45, 0);
+colorGeom(head, 0xfcd34d);
+parts.push(head);
+
+// Sunglasses & Cap
+const glasses = new THREE.BoxGeometry(0.40, 0.12, 0.10);
+glasses.translate(0, 1.48, 0.18);
+colorGeom(glasses, 0x09090b);
+parts.push(glasses);
+
+// Denim Jeans & Chunky Red Sneakers with White Soles
+// ... (additional parts pushed to array)
+
+const characterGeometry = BufferGeometryUtils.mergeGeometries(parts, false);
+parts.forEach(p => p.dispose());
+
+const characterMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+const instancedMesh = new THREE.InstancedMesh(characterGeometry, characterMaterial, count);
 ```
 
-- **Lines 78-82:** Constructs an `InstancedMesh` that holds `totalCount` (64) copies of the same box, sharing one geometry and material.
-- **Lines 90-93:** Reusable Three.js math objects (allocate once, update in loop to avoid garbage collection).
-- **Line 97:** Sets instance `i`'s position to `(x, height/2, z)` — center vertically since box pivot is at origin.
-- **Line 98:** Non-uniform scale: 50m wide (X), variable height (Y), 50m deep (Z).
-- **Lines 99-100:** Bakes position + rotation + scale into a single 4×4 transformation matrix and uploads it to instance slot `i`.
+- **Lines 40-44:** Assigns white base vertex color to the torso so that instance color tinting works.
+- **Lines 46-56:** Creates skin head, dark shades, and backward cap with explicit vertex colors.
+- **Lines 121-122:** Bakes all 14 body parts into a single `BufferGeometry` and disposes of intermediate sub-geometries.
+- **Lines 124-125:** Creates a single `InstancedMesh` capable of rendering 100+ fully detailed humanoid NPCs in exactly 1 draw call!
 
 ### 5. Why this approach and not the obvious one
-- **Avoids per-object overhead:** Creating 64 individual `Mesh` objects per chunk would mean 64 separate draw calls, 64 frustum culling checks, and 64 JavaScript objects in the scene graph.
-- **GPU-friendly parallelism:** Modern GPUs have thousands of cores. Instancing lets them process all 64 buildings concurrently in a single shader dispatch.
-- **Memory efficiency:** One shared `BoxGeometry` (36 vertices, 12 triangles) uses ~1 KB of VRAM. Without sharing, 3,200 geometries would use ~3.2 MB of redundant data.
+- **Zero draw-call explosion:** Rendering 80 NPCs with 14 separate meshes each would equal $80 \times 14 = 1,120$ draw calls per frame, crashing browser performance. Merging into an `InstancedMesh` reduces 1,120 draw calls to 1.
+- **Memory efficiency:** One shared `characterGeometry` uses ~4 KB of VRAM, instanced across the scene.
+- **No skeletal animation overhead:** Uses stylized low-poly composite boxes, avoiding expensive CPU-side matrix palette skinning.
 
 ### 6. What to study
-- **Three.js Docs:** `InstancedMesh`, `Matrix4.compose()`, `BufferAttribute` (for instanceMatrix).
-- **Topics to search:** "GPU instancing explained", "draw call optimization in WebGL", "frustum culling in 3D engines".
+- **Three.js Docs:** `InstancedMesh`, `Matrix4.compose()`, `setColorAt()`, `BufferGeometryUtils.mergeGeometries`.
+- **Topics to search:** "GPU instancing in WebGL", "Vertex color multiplication in Three.js materials", "Draw call batching patterns".
 
 ### 7. Try it yourself
-- **Hand exercise:** Write a Three.js scene with a single `InstancedMesh` containing 100 cubes arranged in a 10×10 grid. Set different colors per instance using `setColorAt()`.
+- **Hand exercise:** Write a small script that creates a table from 5 boxes (1 tabletop + 4 legs), colors the tabletop white and legs black via vertex colors, merges them, and creates an `InstancedMesh` of 50 tables with random tabletop colors.
 - **AI prompt:**
-  > "Create a Three.js demo with an InstancedMesh rendering 500 boxes in a grid. Each box should have a random height between 5 and 50 units and a random color. Use a single BoxGeometry and MeshLambertMaterial shared across all instances. Include a camera and one directional light."
+  > "Show how to create a multi-part composite low-poly vehicle model in Three.js (chassis, cabin, tinted windshield, headlights, taillights, 4 wheels with hubcaps) using BoxGeometry and BufferGeometryUtils.mergeGeometries with per-vertex colors. Explain how setting the chassis vertex color to white allows dynamic paint tinting via `instancedMesh.setColorAt()`."
 
 ---
 
 ## 4. The Window Shader Patch (onBeforeCompile, World-Space Tiling, instanceMatrix)
 
 ### 1. What it does, in plain language
-Draws glowing window grids across thousands of skyscraper instances at night. The windows tile cleanly every 4 meters regardless of how tall or wide each building is, without stretching textures or adding extra geometry.
+Draws glowing window grids across thousands of skyscraper instances at night. The windows tile cleanly every 4 meters regardless of how tall or wide each building is, without stretching textures or adding extra geometry. In addition, buildings are rendered with an expanded 12-color vibrant streetwear/sandbox palette.
 
 ### 2. The core technique or concept
 - **Shader:** A small, fast program written in GLSL (OpenGL Shading Language) executed directly on GPU cores. Vertex shaders calculate 3D corner coordinates; fragment shaders calculate the color of each pixel.
@@ -197,12 +226,14 @@ Draws glowing window grids across thousands of skyscraper instances at night. Th
 - **World-Space Tiling:** Standard UV mapping maps `[0, 1]` across a geometry. When a 1m cube is scaled to 50m × 60m × 50m, standard UVs stretch by 60×. World-space tiling computes UVs from absolute 3D world coordinates (`vWorldPosition / 4.0`), ensuring window panes are always exactly 4m × 4m on every building.
 - **`instanceMatrix` in Vertex Shader:** Because buildings use `InstancedMesh`, the vertex shader must multiply vertex coordinates by `instanceMatrix` to extract the true world-space position and un-skew the normals.
 - **Dynamic Emissive Uniform:** During daytime `uNightIntensity` is `0.0` (windows dark); at dusk it smoothly transitions to `1.0` (windows emit warm yellow glow).
+- **Framed Window Canvas Texture:** A procedural 64×64 canvas texture draws a deep slate window frame dividing four crisp white panes.
 
 ### 3. Where it lives
-- `src/world/city.js:47-107` — `createBuildingMaterial()`, `createWindowTexture()`, `material.onBeforeCompile`
+- `src/world/city.js:10-24` — `PALETTE` 12-color vibrant sandbox array
+- `src/world/city.js:27-116` — `createBuildingMaterial()`, `createWindowTexture()`, `material.onBeforeCompile`
 
 ### 4. The key code idea
-From `src/world/city.js:96-102`:
+From `src/world/city.js:96-111`:
 
 ```glsl
 #include <emissivemap_fragment>
@@ -217,7 +248,7 @@ totalEmissiveRadiance = emissive * winColor.rgb * isWall * uNightIntensity;
 - **Line 97:** `step(abs(vWorldNormal.y), 0.5)` returns `1.0` for vertical walls and `0.0` for horizontal roofs and floors, preventing windows from rendering on rooftops.
 - **Line 98:** Selects either world `Z` or `X` coordinate depending on which direction the wall faces.
 - **Line 99:** Divides world coordinates by 4.0 meters so that 1 window texture repeats every 4 world units.
-- **Line 100:** Samples the 32×32 window canvas texture at the calculated world UV.
+- **Line 100:** Samples the 64×64 window canvas texture at the calculated world UV.
 - **Line 101:** Multiplies base emissive color (`0xffe599` warm yellow) by texture brightness, wall mask, and night intensity uniform.
 
 ### 5. Why this approach and not the obvious one
@@ -237,56 +268,70 @@ totalEmissiveRadiance = emissive * winColor.rgb * isWall * uNightIntensity;
 
 ---
 
-## 5. Day/Night Cycle (Sun Angle, Smoothstep, Hemisphere Light)
+## 5. Day/Night Cycle, Tropical Sky Palette, and ACES Filmic Tone Mapping
 
 ### 1. What it does, in plain language
-Simulates a continuous 24-hour day/night cycle that lasts 10 real-world minutes. It moves the sun across the sky, changes sky color from dawn orange to noon blue to dusk red to midnight navy, dims directional sunlight at night, and smoothly turns on glowing building windows.
+Simulates a continuous 24-hour day/night cycle that lasts 10 real-world minutes. It moves the sun across the sky, transitions the sky through a vibrant 7-keyframe tropical color gradient (deep midnight navy, dawn purple, golden sunrise, noon tropical cyan, sunset coral peach, and dusk violet), and dynamically shifts ambient ground-bounce lighting.
 
 ### 2. The core technique or concept
 - **Normalized Simulation Time:** Time is stored as a single float `time` in `[0.0, 1.0)`, where `0.0` = midnight, `0.25` = dawn (sunrise), `0.5` = noon, and `0.75` = dusk (sunset).
 - **Sun Orbit (Trigonometry):** The sun's 3D position is calculated on a circle using `(Math.cos(angle) * 500, Math.sin(angle) * 500, 0)`. When `sin(angle) > 0`, the sun is above the horizon.
-- **Color Keyframe Interpolation (Lerp):** Sky color is calculated by linearly interpolating between keyframe colors (`lerpColors`) based on current time.
-- **Smoothstep Window Transition:** To avoid a jarring instantaneous snap when building lights turn on, `smoothstep(edge0, edge1, sunElevation)` provides an S-curve easing function between daylight and nighttime.
-- **HemisphereLight Baseline:** At night, pitch-black darkness makes buildings invisible and ruins gameplay. A `HemisphereLight` provides two-color ambient illumination (dark blue from the sky, dark slate from the ground) with an intensity floor of `0.35` so building silhouettes and street geometry remain readable.
+- **ACES Filmic Tone Mapping (`renderer.toneMapping = THREE.ACESFilmicToneMapping`):** Configured with exposure `1.15` in `src/core/renderer.js`. ACES Filmic tone mapping maps high dynamic range lighting into standard sRGB displays with smooth highlight rolloff and rich contrast, giving low-poly cartoon cities an eye-popping, vibrant aesthetic without clipping to flat white.
+- **Dynamic Hemisphere Ambient Ground Bounce:** At midday, `HemisphereLight` emits sky blue from above (`0x90e0ef`) and lush lawn green bounce from below (`0x52b788`). At dusk/dawn, it shifts to warm sunrise orange and violet ground bounce. At night, it maintains a high-visibility slate floor (`0.40` intensity) so city streets remain readable.
 
 ### 3. Where it lives
+- `src/core/renderer.js:14-16` — `ACESFilmicToneMapping` and `toneMappingExposure = 1.15`
 - `src/sim/time.js` — `createTimeController()`, `getSkyColor(time)`, `updateLighting(...)`, `getWindowIntensity(time)`
-- `src/main.js:194-220` — Calls time updates and syncs sky background and window material uniforms in render loop
+- `src/main.js` — Day/night cycle animation loop integration
 
 ### 4. The key code idea
-From `src/sim/time.js:77-87`:
+From `src/sim/time.js:52-60, 94-110`:
 
 ```js
-export function updateLighting(time, directionalLight, hemisphereLight) {
-  // Sun angle: dawn at horizon (0.25), noon at top (0.5)
-  const angle = (time - 0.25) * Math.PI * 2;
+// Sky color keyframes (Dude Theft Wars vibrant arcade sky)
+const skyColors = [
+  { time: 0.0, color: new THREE.Color(0x0d1326) },   // midnight (deep navy)
+  { time: 0.22, color: new THREE.Color(0x481b5c) },  // early dawn purple
+  { time: 0.28, color: new THREE.Color(0xff8844) },  // golden sunrise
+  { time: 0.5, color: new THREE.Color(0x38bdf8) },   // noon (tropical cyan sky)
+  { time: 0.72, color: new THREE.Color(0xff6b81) },  // sunset coral peach
+  { time: 0.80, color: new THREE.Color(0x341f5c) },  // dusk violet
+  { time: 1.0, color: new THREE.Color(0x0d1326) }    // midnight
+];
 
-  directionalLight.position.set(
-    Math.cos(angle) * 500,
-    Math.sin(angle) * 500,
-    0
-  );
-  directionalLight.intensity = Math.max(0, Math.sin(angle));
+// Dynamic hemisphere ground bounce
+if (isNight) {
+  hemisphereLight.color.setHex(0x1e272e);
+  hemisphereLight.groundColor.setHex(0x0c1017);
+  hemisphereLight.intensity = 0.40; // High night visibility
+} else if (sunElevation < 0.3) {
+  hemisphereLight.color.setHex(0xff8844);
+  hemisphereLight.groundColor.setHex(0x574b90);
+  hemisphereLight.intensity = 0.65;
+} else {
+  // Day: Vibrant sky blue + lush lawn green ground bounce
+  hemisphereLight.color.setHex(0x90e0ef);
+  hemisphereLight.groundColor.setHex(0x52b788);
+  hemisphereLight.intensity = 0.80;
+}
 ```
 
-- **Line 79:** Converts normalized time `[0, 1)` into radians, offset by `0.25` so angle `0` corresponds to dawn at the horizon.
-- **Lines 81-85:** Positions the directional sunlight 500 meters away along the orbital arc in the XY plane.
-- **Line 86:** `Math.sin(angle)` gives sunlight elevation. `Math.max(0, ...)` turns off direct sunlight completely once the sun sinks below the horizon.
+- **Lines 52-60:** 7 distinct color keyframes interpolated via `Color.lerpColors()`.
+- **Lines 94-110:** Adapts ambient environment lighting across 3 distinct phases, creating realistic ground bounce light without expensive real-time global illumination shaders.
 
 ### 5. Why this approach and not the obvious one
-- **Avoids hard color snaps:** Discrete `if (night) { light = 0 }` causes noticeable visual popping. Trigonometric angles and smoothstep create cinema-quality gradual transitions.
-- **Avoids unplayable pitch black:** In reality, cities without lights are pitch black. Using a calibrated `HemisphereLight(skyColor, groundColor)` preserves depth perception and contrast without needing dozens of expensive point lights.
-- **Zero physics overhead:** No complex atmospheric scattering shaders; just math-driven Three.js lights and background color interpolation.
+- **Avoids hard color snaps:** Discrete `if (night)` checks cause jarring pops. Smooth trigonometric angles and lerping create seamless transitions.
+- **Avoids unplayable pitch black:** In real cities without street lamps, nights are pitch black. A calibrated `HemisphereLight` baseline ensures gameplay visibility while preserving nighttime mood.
+- **Cinematic contrast:** Standard linear tone mapping produces washed-out colors; ACES Filmic brings out saturated streetwear tones and crisp shadows.
 
 ### 6. What to study
-- **Three.js Docs:** `DirectionalLight`, `HemisphereLight`, `Color.lerpColors()`.
-- **The Book of Shaders:** Chapter on "Algorithmic drawing — Shaping functions" (`smoothstep`).
-- **Topics to search:** "Celestials and day-night cycle math in game engines", "Hermite interpolation / smoothstep formula".
+- **Three.js Docs:** `DirectionalLight`, `HemisphereLight`, `ACESFilmicToneMapping`, `Color.lerpColors()`.
+- **Topics to search:** "Day-night cycle math in game engines", "Tone mapping curves in WebGL", "Hemisphere ambient bounce lighting".
 
 ### 7. Try it yourself
 - **Hand exercise:** Write a `smoothstep(min, max, value)` function in pure JS and test its output at `value = min`, `value = (min+max)/2`, and `value = max`.
 - **AI prompt:**
-  > "Create a day/night cycle module in Three.js. It should track normalized time [0, 1), animate a DirectionalLight along an arc, update scene background color across 4 keyframes (midnight, dawn, noon, dusk), adjust HemisphereLight ground and sky colors, and return a smoothstep window intensity float."
+  > "Create a day/night cycle module in Three.js with ACES Filmic tone mapping. It should animate a DirectionalLight sun along an orbital arc, interpolate sky background across 6 colorful keyframes (dawn, sunrise, tropical noon cyan, coral sunset, dusk violet, midnight navy), and adjust HemisphereLight ground reflection colors."
 
 ---
 
@@ -349,7 +394,7 @@ window.addEventListener('blur', resetKeys);
 
 ---
 
-## 7. Walk Mode and AABB Collision Against Neighboring Cells
+## 7. Walk Mode, Gravity, and Spatial AABB Collision Resolution
 
 ### 1. What it does, in plain language
 When the player toggles walk mode (press `V`), gravity pulls them to ground level, they can jump, and they collide with building walls instead of flying through them. The collision system checks the 9 buildings immediately surrounding the player (a 3×3 grid) and prevents horizontal motion that would clip through walls.
@@ -406,50 +451,58 @@ export function resolveCollision(worldSeed, currentPos, desiredMove, radius = 0.
 
 ---
 
-## 8. BSP Interior Generation and the Separate Interior Scene with Disposal
+## 8. BSP Interior Generation, Micro-Props, Multi-Point Lighting, and Scene Disposal
 
 ### 1. What it does, in plain language
-Allows the player to walk up to any building door and press `E` to step inside a procedurally generated floor plan (lobbies, offices, meeting rooms, server racks). When the player leaves, the entire interior and its 3D assets are completely destroyed and freed from GPU memory to prevent memory leaks.
+Allows the player to walk up to any building door and press `E` to step inside a rich, procedurally generated floor plan (lobbies, offices, meeting rooms, break rooms, server rooms). The interior features room-specific flooring, wall trims, door frame casings, ceiling light fixtures, and detailed furniture (desks with glowing cyan screens, ergonomic blue chairs, potted plants, mahogany boardroom tables with whiteboards, server rack towers with LED indicators and conduit trays, break room kitchen counters with sinks and fridges, lounge sofas with flat-screen TVs, and glowing emerald exit doors). When exiting, all assets are completely disposed of from GPU memory.
 
 ### 2. The core technique or concept
-- **BSP (Binary Space Partitioning):** A recursive tree algorithm that takes a 40m × 40m bounding box and splits it into two smaller rectangles (alternating horizontal and vertical cuts between 40% and 60% of the dimension). This recursion repeats down to 4 levels, generating realistic floor plans with interconnected rooms.
-- **Doorway Cutouts & Lintels:** When a wall splits two rooms, the generator places two wall segments with a 2.0m gap between them and adds a horizontal lintel box above the doorway (at 2.2m height) so the player can walk through.
-- **Geometry Merging:** Creating separate Three.js meshes for every wall segment, lintel, desk, chair, and server rack would create 60+ draw calls. `BufferGeometryUtils.mergeGeometries()` bakes all architectural walls into a single `structureMesh` and all furniture into a single `propsMesh`, keeping interior draw calls to 2.
-- **Isolated Scene Swap:** The interior runs in its own `THREE.Scene` with its own ambient and point lights. The main render loop simply points `renderer.render()` to the interior scene while inside, stopping exterior chunk updates.
-- **GPU Resource Disposal:** WebGL GPU buffers (VRAM) are not automatically reclaimed by JavaScript's garbage collector. Calling `geometry.dispose()` and `material.dispose()` is strictly required whenever unloading an interior.
+- **BSP (Binary Space Partitioning):** A recursive tree algorithm that takes a 40m × 40m bounding box and splits it into two smaller rectangles (alternating horizontal and vertical cuts between 40% and 60% of the dimension) down to 4 levels, generating realistic interconnected rooms.
+- **Room-Type Flooring & Trims:** Distinct floor materials per room (polished parquet oak for lobby, royal blue carpet for offices, wine burgundy for meeting rooms, white ceramic tile for break rooms, anti-static dark slate for server rooms). Dark slate baseboard trims line every wall.
+- **Doorway Cutouts, Lintels & Casings:** Partition walls feature a 2.0m doorway gap, horizontal lintel box overhead (2.4m clearance), and dark casing trim around all three edges.
+- **Comprehensive AABB Prop Colliders:** Every desk, conference table, server rack, kitchen counter, refrigerator, and sofa registers its exact bounding box in `wallAABBs`, preventing the player from walking through furniture.
+- **Multi-Point Lighting:** Central `PointLight` (1.5 intensity, 45m range) plus 4 corner fill `PointLight`s (0.8 intensity, 25m range) ensure sub-rooms are brightly illuminated without dark corners.
+- **2-Draw-Call Interior Geometry Merging:** All architectural structures (floors, walls, baseboards, lintels, ceiling panels) merge into `structureMesh` with vertex colors (Draw call 1). All furniture and props merge into `propsMesh` with vertex colors (Draw call 2).
+- **Zero-Leak Scene Swap & Disposal:** WebGL GPU buffers (VRAM) are not automatically garbage collected. Calling `geometry.dispose()`, `material.dispose()`, and removing point lights on exit prevents memory leaks.
 
 ### 3. Where it lives
 - `src/interiors/bsp.js` — `createBSPTree(seed, width, depth, minRoomSize, maxDepth)`
-- `src/interiors/interiorGenerator.js` — `generateInterior(buildingSeed)` (geometry creation, prop placement, wall AABBs)
-- `src/interiors/interiorScene.js` — `createInteriorScene(building)`, `dispose()`
-- `src/main.js:139-170` — `KeyE` interaction listener swapping between exterior and interior scenes
+- `src/interiors/interiorGenerator.js` — `generateInterior(buildingSeed)` (geometry merging, prop placement, wall & prop AABBs)
+- `src/interiors/interiorScene.js` — `createInteriorScene(building)`, `dispose()`, multi-point lighting
+- `src/main.js` — `KeyE` interaction listener swapping between exterior and interior scenes
 
 ### 4. The key code idea
-From `src/interiors/bsp.js:20-40`:
+From `src/interiors/interiorGenerator.js:273-352`:
 
 ```js
-function splitNode(node, currentDepth) {
-  if (currentDepth >= maxDepth) return;
+if (room.type === 'office') {
+  // Desk Tabletop + Metallic Legs
+  const deskTop = new THREE.BoxGeometry(1.8, 0.08, 0.9);
+  deskTop.translate(rx, 0.74, rz);
+  colorGeom(deskTop, 0x92400e); // Oak wood
+  propsGeometries.push(deskTop);
 
-  // Decide split direction (horizontal or vertical)
-  const canSplitV = node.w >= minRoomSize * 2;
-  const canSplitH = node.d >= minRoomSize * 2;
+  // Monitor Stand + Glowing Cyan Glass Screen
+  const screenGlass = new THREE.BoxGeometry(0.64, 0.36, 0.02);
+  screenGlass.translate(rx, 1.05, rz - 0.08);
+  colorGeom(screenGlass, 0x38bdf8); // Bright cyan screen
+  propsGeometries.push(screenGlass);
 
-  if (!canSplitV && !canSplitH) return;
+  // Ergonomic Blue Chair & Potted Office Plant
+  // ...
 
-  let splitVertical = node.w > node.d ? true : rng.next() > 0.5;
-
-  if (splitVertical) {
-    const splitRatio = rng.nextFloat(0.4, 0.6);
-    const splitW = Math.round(node.w * splitRatio);
-    const childA = { x: node.x, z: node.z, w: splitW, d: node.d, ... };
-    const childB = { x: node.x + splitW, z: node.z, w: node.w - splitW, d: node.d, ... };
+  // Register exact AABB bounding box to prevent player clipping
+  wallAABBs.push({
+    minX: rx - 0.95, maxX: rx + 0.95,
+    minZ: rz - 0.5, maxZ: rz + 0.5,
+    minY: 0, maxY: 0.85
+  });
+}
 ```
 
-- **Lines 21-25:** Base recursion guard: stops splitting when `maxDepth` is reached or if the room is too small to split.
-- **Line 27:** Heuristic split decision: prioritizes cutting along the longer dimension to keep room proportions balanced.
-- **Line 30:** Uses the building's seeded RNG to pick a split point between 40% and 60%.
-- **Lines 32-34:** Subdivides the parent rectangle into two child nodes `childA` and `childB` and continues splitting recursively.
+- **Lines 275-279:** Builds desk components with warm wood vertex colors.
+- **Lines 300-318:** Builds low-poly computer monitors with glowing cyan screens.
+- **Lines 297-298:** Automatically calculates and registers the 3D AABB bounding box in `wallAABBs` so that the player controller's sliding physics collides with the desk.
 
 ### 5. Why this approach and not the obvious one
 - **Avoids memory bloat:** Pre-generating 3,200 building interiors would eat gigabytes of RAM. Generating on-demand from `building.seed` takes <2 milliseconds only when the door is opened.
@@ -464,14 +517,14 @@ function splitNode(node, currentDepth) {
 ### 7. Try it yourself
 - **Hand exercise:** Draw a 40×40 square on grid paper. Apply two vertical and two horizontal BSP splits and assign room types to each leaf cell.
 - **AI prompt:**
-  > "Write a JavaScript procedural room generator using Binary Space Partitioning (BSP). Given a building seed, width (40), depth (40), and max depth (4), recursively subdivide the floor plan into rooms. Return leaf rooms with dimensions, room types ('office', 'server_room', 'meeting_room'), doorway coordinates between adjacent rooms, and an array of 2D bounding boxes for all walls."
+  > "Write a JavaScript procedural room generator using Binary Space Partitioning (BSP). Given a building seed, width (40), depth (40), and max depth (4), recursively subdivide the floor plan into rooms. Return leaf rooms with dimensions, room types ('office', 'server_room', 'meeting_room', 'break_room'), doorway coordinates, and an array of 2D bounding boxes for all walls and furniture props."
 
 ---
 
-## 9. Road Graph, Traffic, and the Near/Far NPC Simulation
+## 9. Road Graph, Arcade Traffic, and Composite Low-Poly NPC Simulation
 
 ### 1. What it does, in plain language
-Animates 64 cars driving along roads and 80 pedestrians walking between home and work buildings. Cars travel along a procedural road grid, turning at intersections. NPCs follow daily schedules: commuting at 7 AM, working indoors until noon, eating lunch outside, returning to work, commuting home at 5:30 PM, and evening leisure walks before midnight. NPCs that are indoors become invisible; outdoor NPCs are rendered as low-poly capsule characters.
+Animates 64 composite low-poly cars driving along roads and 80 humanoid pedestrians walking between home and work buildings. Cars feature multi-part bodies with headlights, taillights, bumpers, rubber tires, and hubcaps. NPCs sport streetwear shirts, sunglasses, backward baseball caps, denim jeans, and chunky sneakers. NPCs follow closed-form daily schedules: commuting at 7 AM, working indoors until noon, eating lunch outside, returning to work, commuting home at 5:30 PM, and evening leisure walks. Indoor NPCs are culled without memory allocation.
 
 ### 2. The core technique or concept
 - **Implicit Road Graph:** Roads aren't stored as data structures. The graph is computed on-the-fly: every intersection is at grid coordinate `(gx * 72m, gz * 72m)`, and each intersection has exactly 4 cardinal neighbor intersections.
@@ -482,9 +535,9 @@ Animates 64 cars driving along roads and 80 pedestrians walking between home and
 
 ### 3. Where it lives
 - `src/world/roadGraph.js` — `getNearestIntersection()`, `getLanePosition()`, `getNextIntersection()`
-- `src/sim/traffic.js` — `createTrafficSystem(worldSeed, maxCars)`, car recycling loop
+- `src/sim/traffic.js` — `createTrafficSystem(worldSeed, maxCars)`, car recycling loop, composite vehicle model
 - `src/sim/npc.js` — `createNPCSchedule(npcSeed, worldSeed)`, `evaluateNPCPosition(npc, time)`
-- `src/sim/npcRenderer.js` — `createNPCRenderer(...)`, merged body + head geometry, `InstancedMesh` update
+- `src/sim/npcRenderer.js` — `createNPCRenderer(...)`, composite humanoid character model, `InstancedMesh` update
 
 ### 4. The key code idea
 From `src/sim/npc.js:52-62`:
@@ -538,7 +591,7 @@ Allows the player to press `K` or `/` to open a search modal, type a building ad
 - `src/world/searchIndex.js` — `searchBuildings(worldSeed, query, searchRadius)`
 - `src/save/db.js` — `setItem(key, value)`, `getItem(key)`, `removeItem(key)` with IndexedDB + in-memory fallback
 - `src/save/saveManager.js` — `saveGameState(...)`, `loadGameState()`, `clearGameState()`
-- `src/main.js:176-208` — Auto-save timer (every 30 seconds)
+- `src/main.js` — Auto-save timer (every 30 seconds)
 
 ### 4. The key code idea
 From `src/save/db.js:36-50`:
@@ -584,24 +637,19 @@ export async function setItem(key, value) {
 
 ---
 
-## 11. Event Bus and Event Log
+## 11. Event Bus and System Decoupling
 
 ### 1. What it does, in plain language
-Acts as the central communication network for the entire game. Whenever anything noteworthy happens (the hour changes, chunks stream in, a player enters a building door, an NPC transitions from commute to work), an event is broadcast. The system maintains a live circular buffer of the 500 most recent events, and pressing `L` opens an in-game event stream panel to inspect and filter events in real time.
+Acts as the central communication network for the entire game. Whenever anything noteworthy happens (the hour changes, chunks stream in, a player enters a building door, an NPC transitions from commute to work), an event is broadcast to all interested listeners without coupling systems together.
 
 ### 2. The core technique or concept
-- **Publish-Subscribe (Pub/Sub):** Systems emit events without knowing who is listening. For example, `npcRenderer.js` doesn't know about `eventViewer.js`; it simply emits `npc_state_changed`, and any interested UI, audio, or analytics component receives it.
+- **Publish-Subscribe (Pub/Sub):** Systems emit events without knowing who is listening. For example, `npcRenderer.js` doesn't know about UI components; it simply emits `npc_state_changed`, and any interested UI, audio, or analytics component receives it.
 - **Strict Normalized Schema:** Every event conforms to `{ t, type, actorId, locationId, data }`. The timestamp `t` uses deterministic simulation time (`timeController.getTime()`), not `Date.now()`.
-- **Wildcard Subscriptions (`'*'`):** The event bus allows subscribing to `'*'`, allowing the `eventLog` to capture every event across all systems with a single listener.
-- **Circular Buffer (Ring Buffer):** The event log caps history at 500 entries. When `buffer.length > capacity`, `buffer.shift()` evicts the oldest entry, guaranteeing constant-bounded memory regardless of how long the game runs.
-- **Sparse Event Throttling:** High-frequency events (like player position) are throttled to prevent log spam. `camera_moved` only fires when the player crosses a 64m grid boundary rather than on every frame.
+- **Wildcard Subscriptions (`'*'`):** The event bus allows subscribing to `'*'`, allowing diagnostic loggers to capture every event across all systems with a single listener.
 
 ### 3. Where it lives
 - `src/events/bus.js` — `createEventBus(getTime)`
-- `src/events/eventLog.js` — `createEventLog(bus, capacity = 500)`
-- `src/events/eventTypes.js` — String constants for all event types (`DOOR_ENTERED`, `CHUNK_LOADED`, etc.)
-- `src/ui/eventViewer.js` — `createEventViewer(eventLog)`
-- `src/main.js:38-41, 135-138, 253-261` — Event bus wiring, log viewer toggle (`KeyL`), and throttled event emissions
+- `src/events/eventTypes.js` — String constants for all event types (`DOOR_ENTERED`, `CHUNK_LOADED`, `NPC_STATE_CHANGED`, etc.)
 
 ### 4. The key code idea
 From `src/events/bus.js:20-30`:
@@ -622,42 +670,40 @@ emit(type, detail = {}) {
 
 - **Lines 21-27:** Automatically injects simulation time `t` and guarantees consistent object schema with fallback defaults.
 - **Line 28:** Invokes all handlers registered specifically for `type`.
-- **Line 29:** Invokes all wildcard (`'*'`) handlers, routing every event into the log buffer.
+- **Line 29:** Invokes all wildcard (`'*'`) handlers.
 
 ### 5. Why this approach and not the obvious one
 - **Eliminates spaghetti coupling:** Without an event bus, systems would directly import and call each other's UI update functions, creating tightly coupled, untestable code.
 - **Enables deterministic forensics:** Using simulation time `t` instead of real wall-clock time ensures event logs can be replayed or evaluated in headless test environments.
-- **Prevents memory leaks:** The circular buffer ensures the game can run for hours without the event log consuming increasing amounts of RAM.
 
 ### 6. What to study
 - **Refactoring Guru:** "Observer Pattern / Publish-Subscribe".
-- **Topics to search:** "Event-driven game architecture", "Circular ring buffer in JavaScript", "Decoupling systems with a central event bus".
+- **Topics to search:** "Event-driven game architecture", "Decoupling systems with a central event bus".
 
 ### 7. Try it yourself
 - **Hand exercise:** Write a minimal event bus in 15 lines of JavaScript with `.on()`, `.off()`, and `.emit()`, including a wildcard `'*'` listener.
 - **AI prompt:**
-  > "Create a publish-subscribe EventBus in vanilla JavaScript. Allow passing a timestamp generator function `getTime` in the constructor. Support emitting typed events with schema `{ t, type, actorId, locationId, data }`. Add support for a wildcard '*' listener that receives all events. Create an EventLog class that records the last 500 events in a circular buffer with methods `filterByType` and `filterByActor`."
+  > "Create a publish-subscribe EventBus in vanilla JavaScript. Allow passing a timestamp generator function `getTime` in the constructor. Support emitting typed events with schema `{ t, type, actorId, locationId, data }`. Add support for a wildcard '*' listener that receives all events."
 
 ---
 
 ## 12. Testing: What the Tests Prove and How Determinism is Tested in Node Without WebGL
 
 ### 1. What it does, in plain language
-Runs automated test suites in the terminal using Vitest (a fast Node.js test runner). The tests verify that the seeded RNG produces identical output across runs, that chunk generation is load-order independent, that collision resolvers prevent clipping through walls, and that the event log correctly filters and buffers events. Tests run in pure Node.js without requiring a browser, WebGL context, or DOM.
+Runs automated test suites in the terminal using Vitest (a fast Node.js test runner). The tests verify that the seeded RNG produces identical output across runs, that chunk generation is load-order independent, that collision resolvers prevent clipping through walls, and that IndexedDB persistence round-trips cleanly. Tests run in pure Node.js without requiring a browser, WebGL context, or DOM.
 
 ### 2. The core technique or concept
 - **Unit Testing Pure Functions:** Functions like `generateChunkData()`, `createRNG()`, and `evaluateNPCPosition()` accept inputs and return plain JavaScript objects without touching the DOM, canvas, or Three.js renderer. These can be imported into Node.js and tested directly.
 - **Determinism Hashing:** To verify that `generateChunkData(12345, 0, 0)` always produces the same 64 buildings, the test serializes the output array to JSON and hashes it using the FNV-1a algorithm. Two runs with the same seed must produce identical hashes.
 - **Load-Order Independence Test:** Generates chunk `(5, 5)` then `(-2, 4)`, then in the reverse order `(-2, 4)` then `(5, 5)`. Asserts that the chunk `(5, 5)` data is byte-identical regardless of which order chunks were visited, proving chunk-hashed seeding works.
 - **Headless Three.js (Geometry Only):** Three.js math utilities (`Matrix4`, `Vector3`, `BoxGeometry`) work in Node.js without WebGL. Tests create geometries and materials to verify no exceptions are thrown, then immediately `.dispose()` them.
-- **Vitest (`npm test`):** Vitest automatically discovers all `*.test.js` files, runs them in parallel, and reports pass/fail. It supports ES module imports natively, making it ideal for modern JavaScript projects.
+- **Vitest (`npm test`):** Vitest automatically discovers all `*.test.js` files, runs them in parallel, and reports pass/fail.
 
 ### 3. Where it lives
-- `tests/determinism.test.js` — Verifies same seed = same city hash, different seeds = different hashes
+- `tests/determinism.test.js` — Verifies same seed = same city hash, palette index bounds
 - `tests/chunk.test.js` — Load-order independence, building count validation, mesh creation
 - `tests/rng.test.js` — PRNG sequence determinism, `nextInt`/`nextFloat` ranges, `fork()` independence
-- `tests/eventLog.test.js` — Circular buffer eviction, type/actor filtering
-- `tests/collision.test.js`, `tests/interiors.test.js`, `tests/npc.test.js`, `tests/search.test.js`, `tests/save.test.js` — Additional system-level tests
+- `tests/collision.test.js`, `tests/interiors.test.js`, `tests/npc.test.js`, `tests/search.test.js`, `tests/save.test.js`, `tests/bus.test.js`, `tests/time.test.js`
 
 ### 4. The key code idea
 From `tests/determinism.test.js:6-27`:
@@ -687,14 +733,14 @@ test('same seed produces exact same city layout hash', () => {
 });
 ```
 
-- **Lines 6-14:** Implements FNV-1a 32-bit hash: XORs each character code, multiplies by a prime constant, and returns a hexadecimal string. This creates a 8-character fingerprint of the entire city layout.
+- **Lines 6-14:** Implements FNV-1a 32-bit hash: XORs each character code, multiplies by a prime constant, and returns a hexadecimal string. This creates an 8-character fingerprint of the entire city layout.
 - **Lines 17-19:** Generates a 20×20 grid of buildings (400 total) from seed `12345` and hashes the resulting array.
 - **Lines 21-23:** Repeats the process with the same seed.
 - **Lines 25-26:** Asserts that both the hashes and deep object equality match exactly.
 
 ### 5. Why this approach and not the obvious one
-- **Avoids browser automation overhead:** Tools like Puppeteer or Playwright launch full Chrome instances, adding 5+ seconds of startup time per test run. Vitest runs in milliseconds.
-- **Catches regressions early:** Without tests, refactoring the RNG or chunk generator could silently break determinism and go unnoticed until players report "my friend's seed doesn't match mine."
+- **Avoids browser automation overhead:** Tools like Puppeteer launch full Chrome instances, adding 5+ seconds of startup time per test run. Vitest runs in milliseconds.
+- **Catches regressions early:** Without tests, refactoring the RNG or chunk generator could silently break determinism and go unnoticed.
 - **No WebGL mocking needed:** Separating pure data generators (`generateChunkData`) from rendering (`createChunkMeshes`) means 90% of the logic is testable in Node.js without canvas polyfills.
 
 ### 6. What to study
@@ -702,333 +748,214 @@ test('same seed produces exact same city layout hash', () => {
 - **Topics to search:** "Unit testing pure functions in JavaScript", "Test-driven development (TDD) basics", "FNV hash algorithm".
 
 ### 7. Try it yourself
-- **Hand exercise:** Run `npm test` in the project terminal and observe which tests pass. Modify `src/core/rng.js` line 16 to `state = (state + 0x12345678)` (wrong constant) and watch the determinism tests fail.
+- **Hand exercise:** Run `npm test` in the project terminal and observe all 10 test suites passing.
 - **AI prompt:**
   > "Write a Vitest test suite for a seeded PRNG. Test that: (1) same seed produces identical 10-value sequences, (2) different seeds produce different sequences, (3) `nextInt(10, 20)` always returns integers in [10, 20], (4) `fork()` creates an independent RNG, and (5) state can be saved and restored with `getState()` and `setState()`."
 
 ---
 
-## 13. How the AI Worked on This
+## 13. How the AI Worked on This (CLAUDE.md, Planning Gates, and Phase Governance)
 
 ### 1. What it does, in plain language
-Describes the structured software development workflow used to build the entire Living City project. Instead of asking the AI to "build a 3D city game" in one giant vague prompt (which always results in broken, unmaintainable code), the project used a disciplined engineering process governed by `CLAUDE.md`, explicit phase milestones, upfront planning, and incremental git commits.
+Describes the structured software development workflow used to build the entire Living City project. Instead of asking the AI to "build a 3D city game" in one giant vague prompt, the project used a disciplined engineering process governed by `CLAUDE.md`, explicit phase milestones, upfront planning, and incremental git commits.
 
 ### 2. The core technique or concept
-- **`CLAUDE.md` as System Architecture Contract:** A markdown file in the project root that defines the hard rules, performance budgets (draw calls < 200, frame time < 16ms), forbidden patterns (`Math.random()` forbidden), stack constraints (no physics engine, vanilla JS + Three.js + Vite), and coding conventions. The AI reads this file before every turn.
-- **Plan-First Rule:** Before writing any code for a feature touching more than 2 files, the AI must explore the codebase, formulate an implementation plan, show it to the user, and wait for approval. This eliminates wasted code churn and architectural misalignments.
-- **Milestone-Based Phasing:** The project was divided into 6 distinct, sequential phases:
-  - *Phase 1:* Flat grid city, instanced boxes, day/night cycle, free camera.
-  - *Phase 2:* Chunk streaming, seeded procedural generation, 60 FPS verification.
-  - *Phase 3:* Enterable buildings, procedural BSP room generator, scene disposal.
-  - *Phase 4:* NPC schedules, road graph, traffic simulation.
-  - *Phase 5:* Search modal, waypoint beacons, IndexedDB persistence.
-  - *Phase 6:* Event bus, circular event log buffer, in-game SIEM stream viewer.
+- **`CLAUDE.md` as System Architecture Contract:** A markdown file in the project root defining hard rules, performance budgets (draw calls < 200, frame time < 16ms), forbidden patterns (`Math.random()` forbidden), stack constraints (no physics engine, vanilla JS + Three.js + Vite), and coding conventions. The AI reads this file before every turn.
+- **Plan-First Rule:** Before writing any code for a feature touching more than 2 files, the AI must explore the codebase, formulate an implementation plan, show it to the user, and wait for approval. This eliminates wasted code churn.
 - **Verification Gates Before Commits:** Every feature was validated with `npm test` (unit tests pass) and `npm run build` (Vite production bundle compiles with zero errors) before committing.
-- **One Feature Per Commit:** Git commits are small, focused, and descriptive (`milestoneX: describe feature`). This makes debugging regressions trivial using `git bisect`.
+- **One Feature Per Commit:** Git commits are small, focused, and descriptive.
 
 ### 3. Where it lives
 - `CLAUDE.md` — Project definition, architectural rules, performance constraints, and phase checklist
-- Git commit log (`git log --oneline`) — Linear progression from Milestone 1 through Milestone 6
+- Git commit log (`git log --oneline`) — Linear progression of features and theme overhauls
 
-### 4. The key code idea
-From `CLAUDE.md`:
+---
 
-```markdown
-## Hard rules
-- Never use `Math.random()`. Use seeded PRNG (mulberry32) from `src/core/rng.js`.
-- Same seed = same world. Sim must be deterministic.
-- Every system emits events via event bus. Schema: `{ t, type, actorId, locationId, data }`.
-- Use InstancedMesh for repeated objects. Merge static geometry per chunk.
-- Dispose geometry, materials, textures on unload. Interiors fully disposed on exit.
-- Chunk size 64m. Load radius 3. Unload outside.
-- Draw calls < 200, Frame time < 16ms on integrated GPU laptop.
+## 14. Bugs We Hit and What They Taught (Post-Mortem Database)
+
+### 1. Vertex Color Instance Tinting Conflict (Theme Overhaul)
+**What happened:** When rendering humanoid NPCs with vertex colors and setting shirt colors via `instancedMesh.setColorAt(i, shirtColor)`, the shirt colors appeared dark, muddy, and distorted.
+**Root cause:** Three.js multiplies `vertexColor * instanceColor`. If the shirt torso box had a gray or blue vertex color, multiplying it by red caused mathematical color crushing.
+**The fix:** Assigned pure white vertex colors (`0xffffff`) to the torso and arms. Since multiplying by 1.0 preserves the multiplier, `setColorAt` tints the shirts cleanly.
+**Lesson learned:** Any mesh part intended for dynamic instance tinting must have white vertex colors (`0xffffff`).
+
+---
+
+### 2. Building Color Palette Index Bounds (Theme Overhaul)
+**What happened:** Expanding the building color palette from 6 colors to 12 vibrant tones caused `tests/determinism.test.js` to fail.
+**Root cause:** The test suite had a hardcoded assertion `expect(b.colorIndex).toBeLessThan(6)` reflecting the old 6-color palette.
+**The fix:** Updated the RNG generator to `rng.nextInt(0, PALETTE.length - 1)` and updated the test suite to assert `< PALETTE.length`.
+**Lesson learned:** Always derive test assertions from exported data constants (`PALETTE.length`) rather than hardcoding magic numbers.
+
+---
+
+### 3. Interior Prop Collision Clipping (Phase 3 Overhaul)
+**What happened:** After adding desks, conference tables, and server racks to BSP interiors, the player walked right through them like ghosts.
+**Root cause:** The collision system originally only added BSP partition walls to `wallAABBs`. Furniture meshes had no collision bounding boxes.
+**The fix:** Added automatic bounding box registration in `wallAABBs` for every desk, table, server rack, kitchen counter, fridge, and lounge sofa.
+**Lesson learned:** Visual props and physical collision volumes must be generated together in the same procedural loop.
+
+---
+
+### 4. Dark Sub-Rooms in BSP Interiors (Phase 3 Overhaul)
+**What happened:** Sub-rooms in the corners of 40m × 40m BSP interiors were completely black at runtime.
+**Root cause:** A single central point light attenuated before reaching corner rooms through partition doorways.
+**The fix:** Added 4 corner fill `PointLight`s (0.8 intensity, 25m radius) in `interiorScene.js` to brightly light all rooms.
+**Lesson learned:** Complex partitioned interior spaces require multi-point fill lighting.
+
+---
+
+### 5. Stuck Keys on Alt+Tab (Phase 1)
+**What happened:** Holding `W` and pressing `Alt+Tab` left the character permanently walking forward.
+**Root cause:** The browser does not fire `keyup` events when window focus is lost.
+**The fix:** Added `window.addEventListener('blur', resetKeys)` and `document.addEventListener('pointerlockchange', resetKeys)`.
+**Lesson learned:** Always handle `blur` and focus loss defensively in game input systems.
+
+---
+
+## 15. Prompting Lessons for Agentic Software Engineering
+
+1. **Start with constraints, not features:** State what is forbidden (no external physics engines, no `Math.random()`, draw calls < 200).
+2. **Demand planning for multi-file changes:** Ask the AI to explore and plan before generating code.
+3. **Provide real error messages and stack traces:** Paste exact error lines rather than saying "it doesn't work."
+4. **Verify one system before moving to the next:** Run `npm test` and `npm run build` after each milestone.
+5. **Specify output format and scope explicitly:** Ask for concise, modular code matching the surrounding style.
+6. **Request verification steps in the prompt:** Embed test expectations into the prompt itself.
+7. **Ask for trade-offs, not just solutions:** Evaluate CPU, memory, and draw call impacts before picking algorithms.
+
+---
+
+## 16. Open-Source 3D Asset Ecosystems & Web Game Design Patterns
+
+To evolve from procedural geometry primitives to richer, high-fidelity sandbox worlds, modern web game development leverages curated open-source 3D asset hubs and UI design systems:
+
+### 1. Curated 3D Asset Hubs
+- **Poimandres Market ([market.pmndrs.rs](https://market.pmndrs.rs))**: A curated, web-optimized 3D asset library created by the Poimandres open-source collective (creators of React Three Fiber and Drei). Assets are formatted in lightweight GLTF/GLB with Draco/Meshopt compression and integrate with [gltf.pmndrs.rs](https://gltf.pmndrs.rs) and `gltfjsx` for pipeline optimization.
+- **Kenney.nl ([kenney.nl](https://kenney.nl))**: The gold standard of public domain (CC0) low-poly modular 3D assets. Offers modular kits:
+  - *City & Suburban Kit*: Roads, sidewalks, traffic lights, and modular multi-story buildings.
+  - *Furniture & Interior Kit*: Sofas, desks, kitchen units, doors, and partition walls.
+  - *Mini Market & Food Kit*: Shelves, cash registers, shopping carts, and packaged goods.
+  - *Car & Vehicle Kit*: Modular low-poly cars matching standard 1m grid scales.
+- **Poly Pizza ([poly.pizza](https://poly.pizza)) & Quaternius**: Extensive libraries of CC0 low-poly props, arcade weapons, food items, and animated character rigs.
+
+### 2. Modern Web Game UI Inspiration (21st.dev, Dribbble & Behance)
+- **21st.dev ([21st.dev](https://21st.dev))**: Modern UI component directory for sleek dark glassmorphism, glowing HUD indicators, minimal health bars, and interactive inventory cards.
+- **Dribbble & Behance Trends**:
+  - *Floating Micro-UIs*: Speech bubbles showing animated emoji pictograms above NPCs' heads (☕ for coffee break, 💼 for going to work, 💤 for sleeping, 😱 for panic).
+  - *Diegetic Sun/Clock Dial*: Circular HUD dial showing current hour, sun elevation, and rush-hour traffic phases.
+  - *Diorama / Tilt-Shift Aesthetics*: Warm pastel palettes, soft ambient bounce lighting, and high-visibility shadows.
+
+### 3. Procedural vs Asset-Kit Architecture
+In `living-city`, we bridge pure procedural code with asset kits through two pipelines:
+1. **Procedural Geometry Assembly (`BufferGeometryUtils` + Vertex Colors)**: Zero-dependency runtime generation of city blocks, roads, trees, cars, and humanoid characters using box primitives.
+2. **GLTF Instancing & Batching (`THREE.BatchedMesh` / `THREE.InstancedMesh`)**: For external GLTF asset packs (e.g. Kenney Furniture Kit), models are converted to shared geometries and batched into single draw calls.
+
+---
+
+## 17. The Road to a Low-Poly Sandbox Game: Phased Evolution Roadmap
+
+To evolve `living-city` into a full-fledged low-poly arcade sandbox game inspired by *Dude Theft Wars*, the development is structured into 5 modular, architecturally isolated phases:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                      SANDBOX EVOLUTION ROADMAP                         │
+├────────────────────────────────────────────────────────────────────────┤
+│ Phase A: Interactive Interiors & Loot Economy                          │
+│  - Lootable cash drawers, safes, and ATMs with interaction prompts     │
+│  - Vending machines and coffee makers granting temporary speed boosts  │
+│  - Interactive furniture (sitting on chairs/sofas, toggling TV video)  │
+│  - Integrated modular props from Kenney Furniture / Market Kit         │
+├────────────────────────────────────────────────────────────────────────┤
+│ Phase B: Player Movement, Combat & Ragdoll Simulation                  │
+│  - Sprint (Shift), crouch (Ctrl), and slide movement physics           │
+│  - Punch/kick arcade melee combat with comedic knockback impulses      │
+│  - Cartoon ragdoll physics on vehicle collisions or high falls         │
+│  - Hit particles, screen shake, and Web Audio sound effects            │
+├────────────────────────────────────────────────────────────────────────┤
+│ Phase C: Drivable Arcade Vehicles                                      │
+│  - Seamless enter/exit vehicle state machine ('KeyF' / 'KeyE')         │
+│  - Arcade raycast vehicle kinematics (acceleration, drift, steering)   │
+│  - Headlights toggle, horn audio, and retro radio stations             │
+│  - Dynamic car damage (smoke particles, bumper detachment)             │
+├────────────────────────────────────────────────────────────────────────┤
+│ Phase D: NPC Reactions & Escalating Wanted System                      │
+│  - Reactive NPC AI: Wander, Panic/Flee, Cower, Curiosity gathering     │
+│  - Floating Dribbble-style emoji speech bubbles (😱, ☕, 💼, 💤)       │
+│  - 1-to-5 Star Wanted Level state machine                              │
+│  - Police cruiser spawning and grid pursuit AI                         │
+├────────────────────────────────────────────────────────────────────────┤
+│ Phase E: Modern Micro-UI & Diegetic HUD                                │
+│  - 21st.dev-inspired dark glassmorphism HUD (health bar, cash counter) │
+│  - Circular diegetic day/night time dial with rush-hour indicators     │
+│  - Real-time GPS mini-map / radar with waypoint beacons and NPC blips  │
+│  - Weapon/Tool radial selection menu                                   │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Every rule in `CLAUDE.md` directly eliminates a specific class of software defect:
-  - *Seed rule* prevents non-deterministic world discrepancies.
-  - *Instancing & merge rule* prevents draw call explosions that drop framerates.
-  - *Disposal rule* prevents WebGL memory leaks that crash browsers.
-  - *Perf budget* establishes a measurable threshold verified via the F3/F4 debug overlay.
+---
 
-### 5. Why this approach and not the obvious one
-- **Prevents context hallucination:** LLMs given huge, open-ended tasks invent unnecessary dependencies (e.g. pulling in Cannon.js or Ammo.js physics engines) and produce bloated, incoherent architectures.
-- **Prevents scope creep:** Working one phase at a time keeps prompt contexts focused on solving one isolated problem cleanly.
-- **Guarantees code quality:** Requiring automated tests and production builds before committing ensures the codebase is always in a working, deployable state.
+## 18. Web Game Security, Privacy, and Repository Hygiene
 
-### 6. What to study
-- **Anthropic Documentation:** "Claude Code best practices", "CLAUDE.md project memory and instructions".
-- **Topics to search:** "Agentic coding workflows", "Test-driven development with AI assistants", "Incremental software engineering".
+Building client-side web games requires strict security and privacy practices to protect player data and repository integrity:
 
-### 7. Try it yourself
-- **Hand exercise:** Write a 20-line `CLAUDE.md` file for a small project of your own. Define stack constraints, 3 hard rules, commands, and a 3-phase roadmap.
-- **AI prompt:**
-  > "Create a CLAUDE.md file for a procedural browser game. Include sections for Stack, Commands, Architecture, Hard Rules (e.g., no external physics engines, deterministic PRNG only, draw calls < 150), and a 4-milestone roadmap."
+1. **Zero Plaintext Secrets**:
+   - Never embed private API keys, database credentials, server tokens, or private secrets in client-side JavaScript or HTML. Client code is completely public.
+2. **Hardened `.gitignore` Configuration**:
+   - Always maintain a strict `.gitignore` covering `.env`, `.env.*`, `*.key`, `*.pem`, `*.cert`, `*.pfx`, `id_rsa*`, `credentials.json`, `token.json`, `auth.json`, `secret*.json`, `*.log`, and editor files.
+3. **Save Data Integrity & Sanitization**:
+   - When loading saved games from IndexedDB or JSON imports, strictly validate data schemas. Never pass raw save properties to `eval()` or unescaped `innerHTML`.
+4. **Deterministic Storage**:
+   - Save only seeds, player coordinates, and delta modifications. Never store bloated or sensitive runtime objects.
 
 ---
 
-## 14. Bugs We Hit and What They Taught
+## 19. Learning Path: Modern 3D Web Game Engineering Curriculum
 
-### Stuck keys (Phase 1)
-**What happened:** Player held `W` to walk forward, pressed `Alt+Tab` to switch windows, returned to the game tab, and the character was permanently stuck walking forward even though no keys were pressed.
+If you want to build a similar 3D procedural sandbox game from scratch:
 
-**Root cause:** When the browser window loses focus, `keyup` events are never fired. The `keys.w` flag remained `true` forever.
-
-**The fix:** Added `window.addEventListener('blur', resetKeys)` and `document.addEventListener('pointerlockchange', () => { if (!locked) resetKeys() })` to explicitly flush all key states when focus is lost.
-
-**Lesson learned:** Always assume external interruptions (Alt+Tab, Escape, DevTools opening) can break input state. Guard against them defensively.
-
----
-
-### Material groups blowing the draw call budget (Phase 2)
-**What happened:** After implementing chunked city generation, the F3 debug overlay reported 1,800+ draw calls and framerates dropped to 12 FPS. The target was <200 draw calls.
-
-**Root cause:** Early code created separate `MeshLambertMaterial` instances per chunk. With 25 loaded chunks and 3 material groups per chunk (buildings, roads, ground slabs), that was 75 materials × multiple geometry batches = massive overhead.
-
-**The fix:** Refactored to shared singleton materials: one `sharedBuildingMaterial`, one `sharedStaticMaterial`, and one `sharedBoxGeometry` reused across all chunks. Reduced draw calls from 1,800 to ~50.
-
-**Lesson learned:** GPU state changes (binding new materials) are more expensive than raw triangle throughput. Reuse materials aggressively.
+1. **JavaScript ES6 Modules & Bitwise Math (1-2 days)**: `import`/`export`, Mulberry32 bitwise operators (`Math.imul`, `>>>`, `|`).
+2. **Three.js Scene Graph & Math (1 week)**: `Scene`, `PerspectiveCamera`, `Matrix4`, `Vector3`, `Quaternion`, `Euler` (YXZ rotation order).
+3. **Geometry Batching & Vertex Colors (3-5 days)**: `BufferGeometryUtils.mergeGeometries`, `BufferAttribute`, vertex color encoding, and instance tint multiplication.
+4. **GPU Instancing & Draw Call Optimization (3-5 days)**: `InstancedMesh`, `setColorAt`, `setMatrixAt`, draw call profiling with `renderer.info`.
+5. **GLSL Shaders & onBeforeCompile (1 week)**: Custom uniforms, world-space UV projection, emissive window tiling, tone mapping.
+6. **Procedural Architecture & BSP Trees (3-5 days)**: Recursive space partitioning, doorway lintels, prop placement, AABB bounding box collision generation.
+7. **Arcade Vehicle Kinematics & Closed-Form NPC Simulation (1 week)**: Raycast vehicle physics, lane offset mathematics, closed-form schedule evaluation.
+8. **Open-Source Asset Pipelines (3-5 days)**: GLTF optimization with `gltf-transform`, Poimandres Market, Kenney CC0 kits.
+9. **Event-Driven Architecture & Storage (2-3 days)**: Central pub/sub bus, IndexedDB async wrappers with Node fallbacks.
+10. **Headless Unit & Determinism Testing with Vitest (2-3 days)**: Testing pure functions, FNV-1a hashing, zero-WebGL geometry tests.
 
 ---
 
-### One building per chunk instead of 64 (Phase 2)
-**What happened:** After implementing chunk-hashed seeding, every chunk generated only 1 building instead of the intended 8×8 grid (64 buildings). The city looked like a sparse ghost town.
+## 20. Glossary of Procedural Generation and 3D Game Engine Terminology
 
-**Root cause:** The chunk generator loop was written as `for (let lz = 0; lz < CHUNK_SIZE; lz++)` instead of `for (let lz = 0; lz < CHUNK_CELLS; lz++)`. `CHUNK_SIZE = 576` (meters), but `CHUNK_CELLS = 8` (grid count).
+**AABB (Axis-Aligned Bounding Box):** A rectangular 3D collision volume aligned with world axes, defined by `minX, maxX, minY, maxY, minZ, maxZ`.
 
-**The fix:** Changed loop bounds to `CHUNK_CELLS` (8) and verified the expected building count with a test: `expect(data.length).toBe(CHUNK_CELLS * CHUNK_CELLS)`.
+**ACES Filmic Tone Mapping:** An industry-standard color transformation curve mapping high dynamic range lighting to display screens with smooth highlight rolloff and rich contrast.
 
-**Lesson learned:** Semantic variable names prevent off-by-one errors. Write unit tests that validate expected data sizes.
+**Binary Space Partitioning (BSP):** A recursive spatial subdivision algorithm that splits volumes into child rooms to generate procedural floor plans.
 
----
+**BufferGeometryUtils.mergeGeometries:** A Three.js utility that combines multiple separate geometries into a single vertex buffer, eliminating draw call overhead.
 
-### Window texture stretching (Phase 2)
-**What happened:** Building windows were blurry and stretched, with one giant window pane covering an entire 60-meter-tall skyscraper face.
+**Chunk:** A square spatial partitioning tile (576m × 576m) containing 64 city blocks, loaded and unloaded based on player proximity.
 
-**Root cause:** The window texture was mapped using standard mesh UVs, which are normalized `[0, 1]` coordinates. When the box geometry was scaled to `(50, 60, 50)`, the UVs stretched proportionally.
+**Closed-Form Evaluation:** Calculating an entity's exact position and state directly from a mathematical function of time $f(t)$ without simulating intermediate frames.
 
-**The fix:** Switched from UV-space mapping to world-space projection in the fragment shader: `vec2 winUV = vec2(vWorldPosition.x / 4.0, vWorldPosition.y / 4.0)`. Windows now tile every 4 meters regardless of building scale.
+**Determinism:** The property that identical seeds and inputs produce the exact same byte-for-byte world.
 
-**Lesson learned:** For procedural tiling patterns, world-space coordinates are more robust than UV coordinates on scaled geometry.
+**Diegetic UI:** User interface elements that exist naturally within the game world's fictional context (e.g. glowing exit signs, circular sun dials).
 
----
+**Draw Call:** A GPU rendering command. High draw call counts cause CPU bottlenecks; instancing and geometry merging reduce draw calls.
 
-### Hard emissive flicker (Phase 2)
-**What happened:** At sunset, building windows instantly snapped from pitch black to full brightness in a single frame, creating a jarring visual pop.
+**InstancedMesh:** A Three.js object rendering thousands of copies of a geometry in a single draw call with distinct transform matrices and colors.
 
-**Root cause:** The original code used a hard threshold: `const nightIntensity = sunElevation < 0 ? 1.0 : 0.0;`.
+**Micro-UI:** Minimalist UI indicators such as floating emoji speech bubbles above NPCs (e.g., ☕, 💼, 💤, 😱).
 
-**The fix:** Replaced the hard `if` with a `smoothstep(-0.1, 0.2, sunElevation)` easing curve, creating a smooth 5-minute dawn/dusk transition.
+**Mulberry32:** A fast, high-quality 32-bit seeded pseudorandom number generator with a $2^{32}$ period.
 
-**Lesson learned:** Hard binary switches create noticeable visual artifacts. Use easing functions (`smoothstep`, `lerp`) for time-based transitions.
+**Pointer Lock API:** A browser API that locks and hides the mouse cursor to deliver continuous raw mouse movement deltas for FPS cameras.
 
----
+**Poimandres (`pmndrs`):** An open-source 3D developer collective behind React Three Fiber, Drei, and Poimandres Market (`market.pmndrs.rs`).
 
-## 15. Prompting Lessons
+**Vertex Colors:** RGB color attributes stored directly on each vertex in a `BufferGeometry`, allowing multi-colored models to render with a single material.
 
-### 1. Start with constraints, not features
-**Bad prompt:** "Build a 3D city game in the browser."
-
-**Good prompt:** "Create a deterministic procedural 3D city using Three.js, vanilla JavaScript, and Vite. No external physics engines. Chunk streaming with a 60 FPS budget on integrated GPUs. Use a seeded PRNG (mulberry32) instead of Math.random(). Start with Phase 1: flat grid city with instanced buildings and day/night cycle."
-
-**Why it works:** Constraints eliminate entire classes of wrong solutions before the AI writes a single line of code.
-
----
-
-### 2. Demand planning for multi-file changes
-**Bad workflow:** "Add BSP interior generation" → AI immediately writes 300 lines of code that doesn't integrate with existing door interaction logic.
-
-**Good workflow:** "Before implementing BSP interiors, read the existing door interaction code in `main.js` and the player controller in `player.js`. Show me a plan for how the interior scene will integrate with the existing enter/exit flow. Wait for my approval before writing code."
-
-**Why it works:** Forces the AI to explore and understand existing architecture before making changes, preventing orphaned or conflicting code.
-
----
-
-### 3. Provide real error messages and stack traces
-**Bad prompt:** "The interiors aren't working."
-
-**Good prompt:** "I'm getting `TypeError: Cannot read property 'dispose' of undefined` at `interiorScene.js:59` when exiting a building. Here's the relevant code: [paste the function]. The error started after I added props geometry merging. What's the root cause?"
-
-**Why it works:** Concrete error messages let the AI pinpoint the exact failure point instead of guessing.
-
----
-
-### 4. Verify one system before moving to the next
-**Bad workflow:** Implement seeded RNG, chunk streaming, instancing, shaders, collision, and interiors all in one session, then try to debug 6 tangled systems simultaneously.
-
-**Good workflow:** "Implement seeded RNG. Write a test that verifies same seed = same sequence. Run `npm test` and confirm it passes. Commit with message 'feat: add mulberry32 seeded PRNG'." Then move to the next feature.
-
-**Why it works:** Each subsystem is validated in isolation before integration. Bugs are caught early when their cause is obvious.
-
----
-
-### 5. Specify output format and scope explicitly
-**Bad prompt:** "Explain how chunk streaming works."
-
-**Good prompt:** "Explain chunk streaming in 3 short paragraphs: (1) what it is in plain language, (2) the key code pattern (quote 10 lines from `chunkManager.js`), (3) why it's needed instead of loading everything at once."
-
-**Why it works:** Prevents meandering, overly verbose responses. You get exactly the information you need in a scannable format.
-
----
-
-### 6. Request verification steps in the prompt
-**Bad prompt:** "Add collision detection."
-
-**Good prompt:** "Add AABB collision detection for walk mode against nearby buildings. After implementation, create a test in `tests/collision.test.js` that verifies a player at `(0, 0)` moving toward a building at `(10, 0)` stops at the building's edge. Run `npm test` and confirm the test passes."
-
-**Why it works:** Embeds verification into the task itself. The AI knows the feature isn't done until the test passes.
-
----
-
-### 7. Provide context: show what you already tried
-**Bad prompt:** "Fix the window shader."
-
-**Good prompt:** "The window emissive shader isn't working. I tried changing `uNightIntensity` to `1.0` manually in the fragment shader, and the windows stayed dark. I confirmed the uniform is being set in `city.js:217`. I suspect the issue is in how `vWorldPosition` is calculated for instanced meshes. Here's the vertex shader code: [paste]."
-
-**Why it works:** Eliminates suggestions the user has already tried. Focuses the AI on the actual problem area.
-
----
-
-### 8. Ask for trade-offs, not just solutions
-**Bad prompt:** "How should I implement NPC pathfinding?"
-
-**Good prompt:** "I need NPCs to walk between home and work buildings. Option 1: A* pathfinding on the road grid (accurate but expensive). Option 2: Closed-form linear interpolation based on schedule time (cheap but simplistic). What are the trade-offs, and which would you recommend for 80 NPCs at 60 FPS?"
-
-**Why it works:** Prompts the AI to think critically about performance, complexity, and project constraints rather than defaulting to the most sophisticated algorithm.
-
----
-
-## 16. Learning Path
-
-If you want to rebuild this from scratch or create a similar project, here's the recommended study order:
-
-### 1. JavaScript ES6 Modules (1-2 days)
-- `import`/`export`, default vs named exports
-- Why: The entire project uses ES modules; you can't follow the code without understanding them.
-
-### 2. Three.js Basics (1 week)
-- Scene, Camera, Renderer, Mesh, Geometry, Material
-- PerspectiveCamera and basic orbit controls
-- Lambert and Basic materials
-- `requestAnimationFrame` loop
-- Why: These are the building blocks. Every 3D engine uses this scene graph model.
-
-### 3. Three.js Geometry and Materials (3-5 days)
-- BoxGeometry, PlaneGeometry, BufferGeometry
-- MeshLambertMaterial, vertex colors, emissive properties
-- Lights: DirectionalLight, HemisphereLight, AmbientLight
-- Why: You need to understand how geometry data flows from CPU to GPU.
-
-### 4. Instancing (2-3 days)
-- `InstancedMesh`, `setMatrixAt`, `setColorAt`
-- Matrix4 transforms (position, rotation, scale)
-- Why instancing (draw call reduction, GPU parallelism)
-- Why: Instancing is the single most important performance optimization in the project.
-
-### 5. Shaders Basics (1 week)
-- Vertex vs fragment shaders
-- GLSL syntax (vec3, uniforms, varyings)
-- `material.onBeforeCompile` hook
-- World-space vs UV-space coordinates
-- Why: Custom shaders unlock effects impossible with standard materials (world-space window tiling).
-
-### 6. Procedural Generation (3-5 days)
-- Seeded PRNGs (Mulberry32 or similar)
-- Determinism: same seed = same output
-- Why `Math.random()` is forbidden in procedural games
-- Why: Determinism is the foundation of the entire architecture.
-
-### 7. Simple Physics (AABB Collision) (2-3 days)
-- Axis-aligned bounding boxes
-- Separating axis theorem (2D case)
-- Axis-separated collision resolution (resolve X, then Z)
-- Why: You don't need a full physics engine for walking around a city.
-
-### 8. Binary Space Partitioning (BSP) (2-3 days)
-- Recursive spatial subdivision
-- How BSP generates floor plans
-- Why: Understanding BSP unlocks procedural dungeons, buildings, and level design.
-
-### 9. Event-Driven Architecture (2 days)
-- Publish-subscribe pattern
-- Decoupling systems with a central event bus
-- Why: Prevents spaghetti imports and makes systems testable in isolation.
-
-### 10. IndexedDB and Browser Storage (1-2 days)
-- Difference between localStorage, sessionStorage, and IndexedDB
-- Wrapping IndexedDB in Promises
-- Why: Save/load systems need structured async storage.
-
-### 11. Testing with Vitest (2-3 days)
-- Writing unit tests for pure functions
-- `expect()`, `.toBe()`, `.toEqual()`
-- Why: Determinism is meaningless if you don't test it.
-
-### 12. Performance Profiling (2 days)
-- Chrome DevTools Performance tab
-- Three.js `renderer.info` (draw calls, triangles)
-- Understanding frame time budgets (16.6ms = 60 FPS)
-- Why: You can't optimize what you don't measure.
-
----
-
-**Total Time Estimate:** 6-8 weeks of focused evening/weekend learning, assuming 1-2 hours per day. Experienced JavaScript developers can move faster; beginners should take it slow and build small test projects at each stage.
-
----
-
-## 17. Glossary
-
-**AABB (Axis-Aligned Bounding Box):** A rectangular collision volume aligned with world X/Y/Z axes (no rotation), defined by `minX, maxX, minY, maxY, minZ, maxZ`.
-
-**Binary Space Partitioning (BSP):** A recursive tree algorithm that divides a 2D or 3D space into progressively smaller rectangular regions.
-
-**Chunk:** A fixed-size square tile (576m × 576m in this project) containing 64 city blocks. Used for spatial partitioning and streaming.
-
-**Closed-Form Evaluation:** Computing a result directly from inputs using a mathematical formula, rather than iterating through intermediate simulation steps.
-
-**Determinism:** The property that running the same code with the same inputs always produces the exact same output.
-
-**Draw Call:** A single GPU command to render geometry with a specific material. Each draw call has CPU/GPU overhead.
-
-**Emissive:** A material property that makes a surface glow as if emitting light, independent of scene lighting.
-
-**Fragment Shader:** A GPU program that calculates the final color of each pixel on a rendered surface.
-
-**Frustum Culling:** The GPU automatically skips rendering objects outside the camera's view cone (frustum).
-
-**GLSL (OpenGL Shading Language):** The C-like language used to write vertex and fragment shaders for WebGL/Three.js.
-
-**GPU (Graphics Processing Unit):** Specialized hardware with thousands of parallel cores optimized for rendering 3D graphics.
-
-**IndexedDB:** A browser-native asynchronous key-value database supporting gigabytes of structured data storage.
-
-**InstancedMesh:** A Three.js optimization that renders many copies of the same geometry with different transforms in a single draw call.
-
-**Lerp (Linear Interpolation):** Blending between two values: `lerp(a, b, t) = a + (a - b) * t`.
-
-**Material:** Defines the visual appearance of a 3D surface (color, shininess, texture, emissive glow).
-
-**Mesh:** A 3D object combining geometry (shape) and material (appearance).
-
-**Pointer Lock:** A browser API that hides the mouse cursor and delivers raw relative motion for first-person camera controls.
-
-**PRNG (Pseudorandom Number Generator):** An algorithm that generates deterministic random-looking numbers from a seed.
-
-**Scene Graph:** A tree hierarchy of 3D objects (meshes, lights, cameras) in a Three.js scene.
-
-**Seed:** An initial integer or string input to a PRNG that determines its entire output sequence.
-
-**Smoothstep:** An S-curve easing function: `smoothstep(edge0, edge1, x) = t² × (3 - 2t)` where `t = clamp((x - edge0) / (edge1 - edge0), 0, 1)`.
-
-**Spatial Partitioning:** Dividing a world into grid cells or regions to optimize collision detection and rendering.
-
-**Time-Slicing:** Spreading expensive computations across multiple frames to maintain 60 FPS.
-
-**Uniform (Shader Uniform):** A global variable passed from JavaScript to a GPU shader, constant across all vertices/pixels in one draw call.
-
-**Vertex Shader:** A GPU program that calculates the 3D screen position of each vertex in a mesh.
-
-**WebGL (Web Graphics Library):** Browser API for hardware-accelerated 3D graphics using the GPU.
-
-**World-Space Coordinates:** Absolute 3D positions in the global scene, as opposed to local object coordinates or UV texture coordinates.
-
----
+**World-Space Coordinates:** Absolute 3D positions in global scene coordinates, used for non-stretching procedural texture projection in shaders.
