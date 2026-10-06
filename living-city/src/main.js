@@ -16,6 +16,7 @@ import { createSearchModal } from './ui/searchModal.js';
 import { saveGameState, loadGameState } from './save/saveManager.js';
 import { createTimeController, getSkyColor, updateLighting, getWindowIntensity } from './sim/time.js';
 import { createDebugOverlay } from './ui/debug.js';
+import { createHUD } from './ui/hud.js';
 
 // Bootstrap the application
 const SEED = 12345;
@@ -25,8 +26,8 @@ const renderer = createRenderer();
 const exteriorScene = new THREE.Scene();
 const camera = createCamera(75, window.innerWidth / window.innerHeight);
 
-// Player controller (starts in fly mode at y=100m, toggle with 'V')
-const player = createPlayer(SEED, 'fly', new THREE.Vector3(0, 100, 0));
+// Player controller (starts at street level in walk mode, toggle with 'V')
+const player = createPlayer(SEED, 'walk', new THREE.Vector3(10, 0, 10));
 
 // Interior state
 let activeInterior = null;
@@ -63,6 +64,7 @@ exteriorScene.add(hemisphereLight);
 const input = createInput(renderer.domElement);
 const debugOverlay = createDebugOverlay(renderer);
 const interactionPrompt = createInteractionPrompt();
+const hud = createHUD(renderer.domElement, bus);
 
 // Search Modal
 const searchModal = createSearchModal(
@@ -251,7 +253,8 @@ startLoop(
       lastCameraCell = currentCell;
     }
 
-    // Update debug overlay
+    // Update debug overlay and HUD
+    hud.update(time, player.getMode(), input.keys.shift, !!activeInterior);
     debugOverlay.update(deltaTime, time, player.getPosition(), {
       isPaused: timeController.isPaused(),
       loadedChunks: activeInterior ? 0 : chunkManager.getLoadedChunkCount(),
