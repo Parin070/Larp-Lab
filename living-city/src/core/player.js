@@ -9,11 +9,11 @@ export const RUN_SPEED = 14.0;
 export const GRAVITY = 20.0;
 export const JUMP_FORCE = 7.5;
 
-export function createPlayer(worldSeed, initialMode = 'fly', initialPos = new THREE.Vector3(0, 100, 0)) {
+export function createPlayer(worldSeed, initialMode = 'walk', initialPos = new THREE.Vector3(10, 0, 10)) {
   let mode = initialMode; // 'fly' | 'walk'
   const position = initialPos.clone();
   const velocity = new THREE.Vector3(0, 0, 0);
-  let isGrounded = false;
+  let isGrounded = position.y <= 0;
 
   return {
     getMode() {
@@ -30,10 +30,8 @@ export function createPlayer(worldSeed, initialMode = 'fly', initialPos = new TH
       mode = newMode;
       velocity.set(0, 0, 0);
       if (mode === 'walk') {
-        if (position.y > 0 && position.y < 10) {
-          position.y = 0;
-          isGrounded = true;
-        }
+        position.y = 0;
+        isGrounded = true;
         if (camera) {
           camera.position.set(position.x, position.y + EYE_HEIGHT, position.z);
         }
