@@ -1,0 +1,52 @@
+# Logs & Runtime
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependencies
+node_modules/
+dist/
+dist-ssr/
+build/
+*.local
+
+# Environment variables & secrets (NEVER commit secrets!)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.cert
+*.pfx
+id_rsa*
+credentials.json
+token.json
+auth.json
+secret*.json
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test & Coverage
+coverage/
+.vitest/
+
+# Vite / Cache
+.vite/
+.cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Claude Code & Tooling local state
+.claude/settings.local.json
+*.local.json
