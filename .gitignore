@@ -11,6 +11,13 @@ Thumbs.db
 !.env.example
 *.pem
 *.key
+*.cert
+*.pfx
+id_rsa*
+credentials.json
+token.json
+auth.json
+secret*.json
 
 # Logs / misc
 *.log
