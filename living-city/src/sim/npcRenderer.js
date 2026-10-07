@@ -1,24 +1,15 @@
 import * as THREE from 'three';
-import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
-import { generateChunkNPCs, evaluateNPCPosition, NPC_SHIRT_COLORS } from './npc.js';
+import { generateChunkNPCs, evaluateNPCPosition } from './npc.js';
+import {
+  createHeadGeometry,
+  createTorsoGeometry,
+  createArmGeometry,
+  createLegGeometry
+} from './npcModel.js';
 
-// Helper to assign RGB vertex colors to a geometry
-function colorGeom(geom, hex) {
-  const c = new THREE.Color(hex);
-  const count = geom.attributes.position.count;
-  const colors = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    colors[i * 3] = c.r;
-    colors[i * 3 + 1] = c.g;
-    colors[i * 3 + 2] = c.b;
-  }
-  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return geom;
-}
-
-export function createNPCRenderer(worldSeed, bus, countOrChunkManager = 200, maybeCount = 200) {
+export function createNPCRenderer(worldSeed, bus, countOrChunkManager = 400, maybeCount = 400) {
   let chunkManager = null;
-  let maxCount = 200;
+  let maxCount = 400;
 
   if (typeof countOrChunkManager === 'number') {
     maxCount = countOrChunkManager;
@@ -27,127 +18,90 @@ export function createNPCRenderer(worldSeed, bus, countOrChunkManager = 200, may
     if (typeof maybeCount === 'number') maxCount = maybeCount;
   }
 
-  // 1. Build composite low-poly "Dude Theft Wars" character geometry
-  const parts = [];
+  // 1. Create 6 Articulated Low-Poly Part Geometries
+  const headGeom = createHeadGeometry();
+  const torsoGeom = createTorsoGeometry();
+  const armLGeom = createArmGeometry(true);
+  const armRGeom = createArmGeometry(false);
+  const legLGeom = createLegGeometry(true);
+  const legRGeom = createLegGeometry(false);
 
-  // Torso / Hoodie (tints with instance color)
-  const torso = new THREE.BoxGeometry(0.52, 0.65, 0.32);
-  torso.translate(0, 0.95, 0);
-  colorGeom(torso, 0xffffff); // White base so instance color tints it
-  parts.push(torso);
+  // Shared vertex-color material (supports instanceColor for shirts/hoodies)
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true });
 
-  // Front Hoodie Pocket
-  const pocket = new THREE.BoxGeometry(0.36, 0.22, 0.04);
-  pocket.translate(0, 0.82, 0.17);
-  colorGeom(pocket, 0xf1f5f9);
-  parts.push(pocket);
+  const headMesh = new THREE.InstancedMesh(headGeom, material, maxCount);
+  const torsoMesh = new THREE.InstancedMesh(torsoGeom, material, maxCount);
+  const armLMesh = new THREE.InstancedMesh(armLGeom, material, maxCount);
+  const armRMesh = new THREE.InstancedMesh(armRGeom, material, maxCount);
+  const legLMesh = new THREE.InstancedMesh(legLGeom, material, maxCount);
+  const legRMesh = new THREE.InstancedMesh(legRGeom, material, maxCount);
 
-  // Head (Warm cartoon skin tone)
-  const head = new THREE.BoxGeometry(0.38, 0.38, 0.38);
-  head.translate(0, 1.45, 0);
-  colorGeom(head, 0xfcd34d);
-  parts.push(head);
+  const group = new THREE.Group();
+  group.add(headMesh);
+  group.add(torsoMesh);
+  group.add(armLMesh);
+  group.add(armRMesh);
+  group.add(legLMesh);
+  group.add(legRMesh);
 
-  // Cool Dark Sunglasses / Shades
-  const glasses = new THREE.BoxGeometry(0.40, 0.12, 0.10);
-  glasses.translate(0, 1.48, 0.18);
-  colorGeom(glasses, 0x09090b);
-  parts.push(glasses);
+  // Pre-allocated matrix math objects (zero GC overhead in 60 FPS loop)
+  const rootPos = new THREE.Vector3();
+  const rootEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const rootQuat = new THREE.Quaternion();
 
-  // Backward Baseball Cap (Red dome + dark visor behind)
-  const cap = new THREE.BoxGeometry(0.40, 0.14, 0.42);
-  cap.translate(0, 1.66, -0.02);
-  colorGeom(cap, 0xef4444);
-  parts.push(cap);
+  const partPos = new THREE.Vector3();
+  const partEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const partQuat = new THREE.Quaternion();
+  const partMatrix = new THREE.Matrix4();
+  const scaleOne = new THREE.Vector3(1, 1, 1);
+  const scaleZero = new THREE.Vector3(0, 0, 0);
 
-  const capVisor = new THREE.BoxGeometry(0.36, 0.04, 0.20);
-  capVisor.translate(0, 1.61, -0.30);
-  colorGeom(capVisor, 0x1e293b);
-  parts.push(capVisor);
-
-  // Arms (Left & Right)
-  const armL = new THREE.BoxGeometry(0.14, 0.55, 0.16);
-  armL.translate(-0.35, 0.95, 0);
-  colorGeom(armL, 0xffffff);
-  parts.push(armL);
-
-  const handL = new THREE.BoxGeometry(0.12, 0.12, 0.14);
-  handL.translate(-0.35, 0.62, 0);
-  colorGeom(handL, 0xfcd34d);
-  parts.push(handL);
-
-  const armR = new THREE.BoxGeometry(0.14, 0.55, 0.16);
-  armR.translate(0.35, 0.95, 0);
-  colorGeom(armR, 0xffffff);
-  parts.push(armR);
-
-  const handR = new THREE.BoxGeometry(0.12, 0.12, 0.14);
-  handR.translate(0.35, 0.62, 0);
-  colorGeom(handR, 0xfcd34d);
-  parts.push(handR);
-
-  // Legs & Denim Jeans
-  const legL = new THREE.BoxGeometry(0.20, 0.55, 0.22);
-  legL.translate(-0.15, 0.40, 0);
-  colorGeom(legL, 0x1e3a8a);
-  parts.push(legL);
-
-  const legR = new THREE.BoxGeometry(0.20, 0.55, 0.22);
-  legR.translate(0.15, 0.40, 0);
-  colorGeom(legR, 0x1e3a8a);
-  parts.push(legR);
-
-  // Chunky Low-Poly Sneakers with White Outsoles
-  const shoeL = new THREE.BoxGeometry(0.22, 0.14, 0.32);
-  shoeL.translate(-0.15, 0.08, 0.04);
-  colorGeom(shoeL, 0xdc2626);
-  parts.push(shoeL);
-
-  const soleL = new THREE.BoxGeometry(0.24, 0.05, 0.34);
-  soleL.translate(-0.15, 0.025, 0.04);
-  colorGeom(soleL, 0xffffff);
-  parts.push(soleL);
-
-  const shoeR = new THREE.BoxGeometry(0.22, 0.14, 0.32);
-  shoeR.translate(0.15, 0.08, 0.04);
-  colorGeom(shoeR, 0xdc2626);
-  parts.push(shoeR);
-
-  const soleR = new THREE.BoxGeometry(0.24, 0.05, 0.34);
-  soleR.translate(0.15, 0.025, 0.04);
-  colorGeom(soleR, 0xffffff);
-  parts.push(soleR);
-
-  const characterGeometry = BufferGeometryUtils.mergeGeometries(parts, false);
-  parts.forEach((p) => p.dispose());
-
-  const characterMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const instancedMesh = new THREE.InstancedMesh(characterGeometry, characterMaterial, maxCount);
-
-  const matrix = new THREE.Matrix4();
-  const position = new THREE.Vector3();
-  const rotation = new THREE.Euler(0, 0, 0, 'YXZ');
-  const quaternion = new THREE.Quaternion();
-  const scale = new THREE.Vector3();
+  const localOffset = new THREE.Vector3();
   const color = new THREE.Color();
+  const whiteColor = new THREE.Color(0xffffff);
 
   // Cache deterministic chunk NPCs: "cx,cz" -> NPC[]
   const chunkCache = new Map();
-  // Array of active evaluated NPCs for queries/interactions
   let currentActiveNPCs = [];
 
   function getNPCsForChunk(cx, cz) {
     const key = `${cx},${cz}`;
     if (!chunkCache.has(key)) {
-      chunkCache.set(key, generateChunkNPCs(worldSeed, cx, cz, 8));
+      chunkCache.set(key, generateChunkNPCs(worldSeed, cx, cz, 24));
     }
     return chunkCache.get(key);
   }
 
+  function setPartTransform(mesh, index, parentPos, parentQuat, offsetX, offsetY, offsetZ, rotX = 0, rotY = 0, rotZ = 0) {
+    localOffset.set(offsetX, offsetY, offsetZ);
+    localOffset.applyQuaternion(parentQuat);
+    partPos.copy(parentPos).add(localOffset);
+
+    partEuler.set(rotX, rotY, rotZ, 'YXZ');
+    partQuat.setFromEuler(partEuler);
+    partQuat.premultiply(parentQuat);
+
+    partMatrix.compose(partPos, partQuat, scaleOne);
+    mesh.setMatrixAt(index, partMatrix);
+  }
+
+  function hideInstance(mesh, index) {
+    partPos.set(0, -100, 0);
+    partMatrix.compose(partPos, rootQuat, scaleZero);
+    mesh.setMatrixAt(index, partMatrix);
+  }
+
   return {
-    mesh: instancedMesh,
-    update(simTime, loadedChunksOrPlayerPos = null, maybePlayerPos = null) {
+    mesh: group,
+    group,
+    update(animTimeOrSimTime, loadedChunksOrPlayerPos = null, maybePlayerPos = null) {
+      const animTime = typeof animTimeOrSimTime === 'number' ? animTimeOrSimTime : 0;
       let activeChunks = [];
+      let playerPos = null;
+
+      if (maybePlayerPos && typeof maybePlayerPos.x === 'number') {
+        playerPos = maybePlayerPos;
+      }
 
       // Determine active chunks to pull NPCs from
       if (loadedChunksOrPlayerPos instanceof Map) {
@@ -155,7 +109,7 @@ export function createNPCRenderer(worldSeed, bus, countOrChunkManager = 200, may
       } else if (chunkManager && typeof chunkManager.getLoadedChunks === 'function') {
         activeChunks = Array.from(chunkManager.getLoadedChunks().values());
       } else if (loadedChunksOrPlayerPos && typeof loadedChunksOrPlayerPos.x === 'number') {
-        // Player position passed
+        playerPos = loadedChunksOrPlayerPos;
         const px = loadedChunksOrPlayerPos.x;
         const pz = loadedChunksOrPlayerPos.z;
         const centerCx = Math.floor((px + 288) / 576);
@@ -166,7 +120,6 @@ export function createNPCRenderer(worldSeed, bus, countOrChunkManager = 200, may
           }
         }
       } else {
-        // Default 3x3 surrounding origin
         for (let cz = -1; cz <= 1; cz++) {
           for (let cx = -1; cx <= 1; cx++) {
             activeChunks.push({ cx, cz });
@@ -174,7 +127,7 @@ export function createNPCRenderer(worldSeed, bus, countOrChunkManager = 200, may
         }
       }
 
-      // Collect all candidate NPCs
+      // Collect candidate NPCs
       const candidates = [];
       for (let i = 0; i < activeChunks.length; i++) {
         const c = activeChunks[i];
@@ -184,24 +137,54 @@ export function createNPCRenderer(worldSeed, bus, countOrChunkManager = 200, may
         }
       }
 
-      // Evaluate and assign matrices to instanced mesh
+      // Prioritize closest NPCs to player
+      if (playerPos) {
+        candidates.sort((a, b) => {
+          const da = (a.cellCenterX - playerPos.x) ** 2 + (a.cellCenterZ - playerPos.z) ** 2;
+          const db = (b.cellCenterX - playerPos.x) ** 2 + (b.cellCenterZ - playerPos.z) ** 2;
+          return da - db;
+        });
+      }
+
       const renderCount = Math.min(candidates.length, maxCount);
       currentActiveNPCs = [];
 
       for (let i = 0; i < renderCount; i++) {
         const npc = candidates[i];
-        const evalPos = evaluateNPCPosition(npc, simTime);
+        const evalPos = evaluateNPCPosition(npc, animTime);
 
-        position.set(evalPos.x, evalPos.y, evalPos.z);
-        rotation.set(0, evalPos.heading, evalPos.roll);
-        quaternion.setFromEuler(rotation);
-        scale.set(1, 1, 1);
+        rootPos.set(evalPos.x, evalPos.y, evalPos.z);
+        rootEuler.set(0, evalPos.heading, evalPos.roll);
+        rootQuat.setFromEuler(rootEuler);
 
-        matrix.compose(position, quaternion, scale);
-        instancedMesh.setMatrixAt(i, matrix);
+        // 1. Torso (Pivot at waist/center)
+        setPartTransform(torsoMesh, i, rootPos, rootQuat, 0, 0.95, 0, 0, 0, 0);
 
+        // 2. Head (Pivot at neck base)
+        setPartTransform(headMesh, i, rootPos, rootQuat, 0, 1.45, 0, evalPos.headPitch, evalPos.headYaw, 0);
+
+        // 3. Left Arm (Pivot at left shoulder)
+        setPartTransform(armLMesh, i, rootPos, rootQuat, -0.30, 1.22, 0, evalPos.armAngleL, 0, 0.05);
+
+        // 4. Right Arm (Pivot at right shoulder)
+        setPartTransform(armRMesh, i, rootPos, rootQuat, 0.30, 1.22, 0, evalPos.armAngleR, 0, -0.05);
+
+        // 5. Left Leg (Pivot at left hip)
+        setPartTransform(legLMesh, i, rootPos, rootQuat, -0.13, 0.68, 0, evalPos.legAngleL, 0, 0);
+
+        // 6. Right Leg (Pivot at right hip)
+        setPartTransform(legRMesh, i, rootPos, rootQuat, 0.13, 0.68, 0, evalPos.legAngleR, 0, 0);
+
+        // Tint shirt/hoodie and arm sleeves with instance color
         color.setHex(npc.colorHex);
-        instancedMesh.setColorAt(i, color);
+        torsoMesh.setColorAt(i, color);
+        armLMesh.setColorAt(i, color);
+        armRMesh.setColorAt(i, color);
+
+        // Neutral instance color for head and legs (vertex colors will show)
+        headMesh.setColorAt(i, whiteColor);
+        legLMesh.setColorAt(i, whiteColor);
+        legRMesh.setColorAt(i, whiteColor);
 
         currentActiveNPCs.push({
           id: npc.id,
@@ -213,18 +196,30 @@ export function createNPCRenderer(worldSeed, bus, countOrChunkManager = 200, may
         });
       }
 
-      // Hide excess instances underground
+      // Hide excess instances
       for (let i = renderCount; i < maxCount; i++) {
-        position.set(0, -100, 0);
-        scale.set(0, 0, 0);
-        matrix.compose(position, quaternion, scale);
-        instancedMesh.setMatrixAt(i, matrix);
+        hideInstance(headMesh, i);
+        hideInstance(torsoMesh, i);
+        hideInstance(armLMesh, i);
+        hideInstance(armRMesh, i);
+        hideInstance(legLMesh, i);
+        hideInstance(legRMesh, i);
       }
 
-      instancedMesh.instanceMatrix.needsUpdate = true;
-      if (instancedMesh.instanceColor) {
-        instancedMesh.instanceColor.needsUpdate = true;
-      }
+      // Flag instance matrices and colors for GPU upload
+      headMesh.instanceMatrix.needsUpdate = true;
+      torsoMesh.instanceMatrix.needsUpdate = true;
+      armLMesh.instanceMatrix.needsUpdate = true;
+      armRMesh.instanceMatrix.needsUpdate = true;
+      legLMesh.instanceMatrix.needsUpdate = true;
+      legRMesh.instanceMatrix.needsUpdate = true;
+
+      if (headMesh.instanceColor) headMesh.instanceColor.needsUpdate = true;
+      if (torsoMesh.instanceColor) torsoMesh.instanceColor.needsUpdate = true;
+      if (armLMesh.instanceColor) armLMesh.instanceColor.needsUpdate = true;
+      if (armRMesh.instanceColor) armRMesh.instanceColor.needsUpdate = true;
+      if (legLMesh.instanceColor) legLMesh.instanceColor.needsUpdate = true;
+      if (legRMesh.instanceColor) legRMesh.instanceColor.needsUpdate = true;
     },
     getNearbyNPC(playerPos, maxDist = 2.8) {
       if (!playerPos || currentActiveNPCs.length === 0) return null;
@@ -247,10 +242,20 @@ export function createNPCRenderer(worldSeed, bus, countOrChunkManager = 200, may
       return closest;
     },
     dispose() {
-      if (instancedMesh.parent) instancedMesh.parent.remove(instancedMesh);
-      characterGeometry.dispose();
-      characterMaterial.dispose();
-      instancedMesh.dispose();
+      if (group.parent) group.parent.remove(group);
+      headGeom.dispose();
+      torsoGeom.dispose();
+      armLGeom.dispose();
+      armRGeom.dispose();
+      legLGeom.dispose();
+      legRGeom.dispose();
+      material.dispose();
+      headMesh.dispose();
+      torsoMesh.dispose();
+      armLMesh.dispose();
+      armRMesh.dispose();
+      legLMesh.dispose();
+      legRMesh.dispose();
       chunkCache.clear();
       currentActiveNPCs = [];
     }
