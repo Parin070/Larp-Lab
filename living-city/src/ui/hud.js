@@ -328,9 +328,24 @@ export function createHUD(canvas, bus) {
   `;
   container.appendChild(startOverlay);
 
-  // Click overlay to request pointer lock
+  // Click overlay to request pointer lock and start
   startOverlay.addEventListener('click', () => {
-    canvas.requestPointerLock();
+    startOverlay.style.opacity = '0';
+    startOverlay.style.pointerEvents = 'none';
+    crosshair.style.opacity = '1';
+    setTimeout(() => {
+      startOverlay.style.display = 'none';
+    }, 300);
+    if (canvas && typeof canvas.requestPointerLock === 'function') {
+      try {
+        const p = canvas.requestPointerLock();
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {});
+        }
+      } catch (err) {
+        // Pointer lock not available or restricted
+      }
+    }
   });
 
   const onPointerLock = () => {
@@ -338,8 +353,10 @@ export function createHUD(canvas, bus) {
     if (isLocked) {
       startOverlay.style.opacity = '0';
       startOverlay.style.pointerEvents = 'none';
+      startOverlay.style.display = 'none';
       crosshair.style.opacity = '1';
     } else {
+      startOverlay.style.display = 'flex';
       startOverlay.style.opacity = '1';
       startOverlay.style.pointerEvents = 'auto';
       crosshair.style.opacity = '0.5';
