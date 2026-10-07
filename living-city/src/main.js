@@ -124,7 +124,14 @@ const searchModal = createSearchModal(
   },
   (building) => {
     player.setMode('walk', camera);
-    player.teleport(new THREE.Vector3(building.door.x, 0, building.door.z), camera);
+    let offsetX = 0;
+    let offsetZ = 0;
+    if (building.door.facing === 'south') offsetZ = 1.2;
+    else if (building.door.facing === 'north') offsetZ = -1.2;
+    else if (building.door.facing === 'east') offsetX = 1.2;
+    else if (building.door.facing === 'west') offsetX = -1.2;
+
+    player.teleport(new THREE.Vector3(building.door.x + offsetX, 0, building.door.z + offsetZ), camera);
     waypoint.setTarget({ x: building.door.x, z: building.door.z }, building.address);
     bus.emit('player_teleport', {
       actorId: 'player',
@@ -134,27 +141,37 @@ const searchModal = createSearchModal(
   }
 );
 
-// Find nearby door in exterior world
-function findNearbyExteriorDoor(pos, maxDist = 3.5) {
+// Find nearby door in exterior world (checks 3x3 neighbor cells)
+function findNearbyExteriorDoor(pos, maxDist = 3.8) {
   const cellPitch = 72;
-  const gx = Math.floor(pos.x / cellPitch);
-  const gz = Math.floor(pos.z / cellPitch);
+  const centerGx = Math.floor(pos.x / cellPitch);
+  const centerGz = Math.floor(pos.z / cellPitch);
 
-  const buildingCenterX = gx * cellPitch + cellPitch / 2;
-  const buildingCenterZ = gz * cellPitch + cellPitch / 2;
+  let closestBuilding = null;
+  let minDist = maxDist;
 
-  const cx = Math.floor((buildingCenterX + 288) / 576);
-  const cz = Math.floor((buildingCenterZ + 288) / 576);
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const gx = centerGx + dx;
+      const gz = centerGz + dz;
+      const buildingCenterX = gx * cellPitch + cellPitch / 2;
+      const buildingCenterZ = gz * cellPitch + cellPitch / 2;
 
-  const chunkData = generateChunkData(SEED, cx, cz);
-  for (let i = 0; i < chunkData.length; i++) {
-    const b = chunkData[i];
-    const dist = Math.hypot(pos.x - b.door.x, pos.z - b.door.z);
-    if (dist <= maxDist) {
-      return b;
+      const cx = Math.floor((buildingCenterX + 288) / 576);
+      const cz = Math.floor((buildingCenterZ + 288) / 576);
+
+      const chunkData = generateChunkData(SEED, cx, cz);
+      for (let i = 0; i < chunkData.length; i++) {
+        const b = chunkData[i];
+        const dist = Math.hypot(pos.x - b.door.x, pos.z - b.door.z);
+        if (dist <= minDist) {
+          minDist = dist;
+          closestBuilding = b;
+        }
+      }
     }
   }
-  return null;
+  return closestBuilding;
 }
 
 // Ambient NPC Greetings
