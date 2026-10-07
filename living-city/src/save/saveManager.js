@@ -2,10 +2,22 @@ import { setItem, getItem, removeItem } from './db.js';
 
 export const SAVE_KEY = 'living_city_quicksave';
 
-export async function saveGameState(worldSeed, player, timeController, deltas = []) {
+export async function saveGameState(worldSeed, player, timeController, questManagerOrDeltas = null, maybeDeltas = []) {
   const playerPos = player.getPosition();
+  let questData = null;
+  let deltas = [];
+
+  if (Array.isArray(questManagerOrDeltas)) {
+    deltas = questManagerOrDeltas;
+  } else if (questManagerOrDeltas && typeof questManagerOrDeltas.serialize === 'function') {
+    questData = questManagerOrDeltas.serialize();
+    if (Array.isArray(maybeDeltas)) {
+      deltas = maybeDeltas;
+    }
+  }
+
   const state = {
-    version: 1,
+    version: 2,
     worldSeed,
     player: {
       x: Math.round(playerPos.x * 100) / 100,
@@ -14,6 +26,7 @@ export async function saveGameState(worldSeed, player, timeController, deltas = 
       mode: player.getMode()
     },
     simTime: timeController.getTime(),
+    questData,
     timestamp: typeof Date !== 'undefined' ? Date.now() : 0,
     deltas
   };
@@ -30,3 +43,4 @@ export async function loadGameState() {
 export async function clearGameState() {
   await removeItem(SAVE_KEY);
 }
+
