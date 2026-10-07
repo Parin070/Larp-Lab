@@ -54,7 +54,7 @@ bus.emit('world_initialized', { data: { seed: SEED, loadRadius: 2 } });
 const traffic = createTrafficSystem(SEED, 64);
 exteriorScene.add(traffic.mesh);
 
-const npcs = createNPCRenderer(SEED, bus, 80);
+const npcs = createNPCRenderer(SEED, bus, chunkManager, 200);
 exteriorScene.add(npcs.mesh);
 
 const waypoint = createWaypointMarker();
@@ -157,6 +157,18 @@ function findNearbyExteriorDoor(pos, maxDist = 3.5) {
   return null;
 }
 
+// Ambient NPC Greetings
+const AMBIENT_GREETINGS = [
+  "Yo Dude! What's good?",
+  "Love the sneakers, bro!",
+  "Big city, big dreams Dude!",
+  "Hey! Watch out for crazy drivers!",
+  "Nice day for a walk in the city!",
+  "Check out the pizza place down the block!",
+  "Yo! Ever tried flying around with 'V'?",
+  "Dude Theft Wars vibes all day!"
+];
+
 // Mode & Interaction Key handlers
 input.onKeyPress('KeyV', () => {
   if (activeInterior || searchModal.isOpen() || dialogueModal.isOpen()) return;
@@ -232,7 +244,21 @@ input.onKeyPress('KeyE', () => {
     }
   }
 
-  // 4. Exterior Building Doors
+  // 4. Exterior Ambient NPCs
+  const nearbyNPC = npcs.getNearbyNPC(player.getPosition(), 2.8);
+  if (nearbyNPC) {
+    audio.playVoiceBeep();
+    const hash = Math.abs(parseInt(nearbyNPC.id.replace(/\D/g, ''), 10) || 0);
+    const greeting = AMBIENT_GREETINGS[hash % AMBIENT_GREETINGS.length];
+    hud.showBanner(`💬 ${nearbyNPC.name}`, greeting);
+    bus.emit('npc_talked', {
+      actorId: nearbyNPC.id,
+      data: { name: nearbyNPC.name, x: nearbyNPC.x, z: nearbyNPC.z, activity: nearbyNPC.activity }
+    });
+    return;
+  }
+
+  // 5. Exterior Building Doors
   const nearbyBuilding = findNearbyExteriorDoor(player.getPosition());
   if (nearbyBuilding) {
     savedExteriorPos.copy(player.getPosition());
@@ -305,7 +331,7 @@ startLoop(
     // Update exterior simulation (traffic, NPCs, quest renderer, quest manager, waypoint)
     if (!activeInterior) {
       traffic.update(deltaTime, player.getPosition());
-      npcs.update(time);
+      npcs.update(time, chunkManager.getLoadedChunks(), player.getPosition());
       questManager.update(deltaTime);
       questRenderer.update(time, deltaTime);
       waypoint.update(time);
@@ -326,11 +352,16 @@ startLoop(
       if (nearbyQuestInteractive) {
         interactionPrompt.show(nearbyQuestInteractive.prompt);
       } else {
-        const nearbyBuilding = findNearbyExteriorDoor(player.getPosition());
-        if (nearbyBuilding) {
-          interactionPrompt.show(`Press [E] to Enter ${nearbyBuilding.address}`);
+        const nearbyNPC = npcs.getNearbyNPC(player.getPosition(), 2.8);
+        if (nearbyNPC) {
+          interactionPrompt.show(`Press [E] to Talk to ${nearbyNPC.name}`);
         } else {
-          interactionPrompt.hide();
+          const nearbyBuilding = findNearbyExteriorDoor(player.getPosition());
+          if (nearbyBuilding) {
+            interactionPrompt.show(`Press [E] to Enter ${nearbyBuilding.address}`);
+          } else {
+            interactionPrompt.hide();
+          }
         }
       }
     } else {
