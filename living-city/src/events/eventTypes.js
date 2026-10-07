@@ -8,5 +8,11 @@ export const EVENT_TYPES = {
   WAYPOINT_SET: 'waypoint_set',
   CHUNK_LOADED: 'chunk_loaded',
   CHUNK_UNLOADED: 'chunk_unloaded',
-  NPC_STATE_CHANGED: 'npc_state_changed'
+  NPC_STATE_CHANGED: 'npc_state_changed',
+  QUEST_STARTED: 'quest_started',
+  QUEST_PROGRESS: 'quest_progress',
+  QUEST_COMPLETED: 'quest_completed',
+  QUEST_FAILED: 'quest_failed',
+  NPC_TALKED: 'npc_talked',
+  ITEM_COLLECTED: 'item_collected'
 };
