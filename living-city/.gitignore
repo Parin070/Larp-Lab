@@ -50,3 +50,4 @@ temp/
 # Claude Code & Tooling local state
 .claude/settings.local.json
 *.local.json
+.playwright-mcp/
