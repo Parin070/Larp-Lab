@@ -32,6 +32,22 @@ describe('Zero-Dependency Persistence (IndexedDB / Mock)', () => {
     expect(loaded.deltas.length).toBe(1);
   });
 
+  it('saves and loads questData successfully', async () => {
+    const player = createPlayer(SEED, 'walk', new THREE.Vector3(0, 0, 0));
+    const timeController = createTimeController();
+    const mockQuestManager = {
+      serialize: () => ({ playerCash: 750, playerRep: 3, completedQuestIds: ['q1', 'q2'] })
+    };
+
+    await saveGameState(SEED, player, timeController, mockQuestManager);
+    const loaded = await loadGameState();
+    expect(loaded).toBeDefined();
+    expect(loaded.questData).toBeDefined();
+    expect(loaded.questData.playerCash).toBe(750);
+    expect(loaded.questData.playerRep).toBe(3);
+    expect(loaded.questData.completedQuestIds).toEqual(['q1', 'q2']);
+  });
+
   it('clears saved state successfully', async () => {
     const player = createPlayer(SEED, 'fly', new THREE.Vector3(0, 50, 0));
     const time = createTimeController();
