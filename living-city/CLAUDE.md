@@ -47,10 +47,10 @@ Target: normal laptop, open URL, 60fps. Static hosting only. No backend.
 2. Chunk streaming, seeded generation, 60fps check
 3. Enterable buildings, room generator
 4. NPC schedules, road graph, traffic
-5. Search, save/load
+5. Search, save/load, side quests, interactive NPCs (Dude Theft Wars sandbox)
 6. Event stream, SIEM dashboard, CTF incidents
 
-Current phase: 5 (Phases 1-5 complete, low-poly Dude Theft Wars theme overhaul)
+Current phase: 5 (Phases 1-5 complete: procedural side quests, interactive NPCs, zero-asset Web Audio synthesis, arcade HUD)
 Work one phase at a time. Do not start next phase without being told.
 Commit after each working feature and commit each file separately, do not "git add .".
 
