@@ -1,51 +1,80 @@
 import { describe, it, expect } from 'vitest';
-import { createNPCSchedule, evaluateNPCPosition } from '../src/sim/npc.js';
+import { generateChunkNPCs, evaluateNPCPosition, NPC_ACTIVITIES, createNPCSchedule } from '../src/sim/npc.js';
+import { createNPCRenderer } from '../src/sim/npcRenderer.js';
 
-describe('NPC Schedules and Far-Field Evaluation', () => {
+describe('Per-Chunk Ambient Active NPCs & Kinematics', () => {
   const WORLD_SEED = 12345;
-  const NPC_SEED = 777;
 
-  it('generates deterministic schedule from seed', () => {
-    const schedA = createNPCSchedule(NPC_SEED, WORLD_SEED);
-    const schedB = createNPCSchedule(NPC_SEED, WORLD_SEED);
+  it('generates deterministic active NPCs per chunk', () => {
+    const npcsA = generateChunkNPCs(WORLD_SEED, 0, 0, 8);
+    const npcsB = generateChunkNPCs(WORLD_SEED, 0, 0, 8);
 
-    expect(schedA).toEqual(schedB);
-    expect(schedA.home).toBeDefined();
-    expect(schedA.work).toBeDefined();
+    expect(npcsA.length).toBe(8);
+    expect(npcsB.length).toBe(8);
+    expect(npcsA).toEqual(npcsB);
+
+    for (const npc of npcsA) {
+      expect(npc.id).toBeDefined();
+      expect(npc.activity).toBeDefined();
+      expect(Object.values(NPC_ACTIVITIES)).toContain(npc.activity);
+      expect(npc.colorHex).toBeTypeOf('number');
+      expect(npc.name).toContain('Dude-');
+    }
   });
 
-  it('evaluates closed-form position accurately based on time of day', () => {
-    const sched = createNPCSchedule(NPC_SEED, WORLD_SEED);
+  it('generates distinct deterministic NPCs across different chunks', () => {
+    const chunkOrigin = generateChunkNPCs(WORLD_SEED, 0, 0, 8);
+    const chunkEast = generateChunkNPCs(WORLD_SEED, 1, 0, 8);
 
-    // Midnight (0.0): Home, indoor
-    const midnight = evaluateNPCPosition(sched, 0.0);
-    expect(midnight.state).toBe('home');
-    expect(midnight.isOutdoor).toBe(false);
-    expect(midnight.x).toBeCloseTo(sched.home.x, 1);
-    expect(midnight.z).toBeCloseTo(sched.home.z, 1);
-
-    // Morning Commute (08:00 = 8/24 = 0.333): Commuting to work, outdoor
-    const commute1 = evaluateNPCPosition(sched, 8 / 24);
-    expect(commute1.state).toBe('commute_work');
-    expect(commute1.isOutdoor).toBe(true);
-
-    // Afternoon Work (14:00 = 14/24 = 0.583): Work, indoor
-    const work = evaluateNPCPosition(sched, 14 / 24);
-    expect(work.state).toBe('work');
-    expect(work.isOutdoor).toBe(false);
-    expect(work.x).toBeCloseTo(sched.work.x, 1);
-    expect(work.z).toBeCloseTo(sched.work.z, 1);
-
-    // Evening Commute (18:00 = 18/24 = 0.75): Commuting home, outdoor
-    const commute2 = evaluateNPCPosition(sched, 18 / 24);
-    expect(commute2.state).toBe('commute_home');
-    expect(commute2.isOutdoor).toBe(true);
+    expect(chunkOrigin[0].id).not.toBe(chunkEast[0].id);
+    expect(chunkOrigin[0].cellCenterX).not.toBe(chunkEast[0].cellCenterX);
   });
 
-  it('is purely mathematical and does not require WebGL', () => {
-    const sched = createNPCSchedule(54321, WORLD_SEED);
+  it('evaluates closed-form 100% outdoor position, step bounce, and heading', () => {
+    const npcs = generateChunkNPCs(WORLD_SEED, 0, 0, 8);
+
+    for (const npc of npcs) {
+      for (const time of [0.0, 0.25, 0.5, 0.75, 1.0, 12.5]) {
+        const pos = evaluateNPCPosition(npc, time);
+
+        expect(pos.isOutdoor).toBe(true);
+        expect(pos.y).toBeGreaterThanOrEqual(0.15); // Above ground on sidewalk
+        expect(Number.isFinite(pos.x)).toBe(true);
+        expect(Number.isFinite(pos.z)).toBe(true);
+        expect(Number.isFinite(pos.heading)).toBe(true);
+        expect(Number.isFinite(pos.roll)).toBe(true);
+      }
+    }
+  });
+
+  it('supports backward-compatible createNPCSchedule helper', () => {
+    const sched = createNPCSchedule(777, WORLD_SEED);
+    expect(sched.id).toBe('npc_777');
     const pos = evaluateNPCPosition(sched, 0.5);
-    expect(typeof pos.x).toBe('number');
-    expect(typeof pos.z).toBe('number');
+    expect(pos.isOutdoor).toBe(true);
+    expect(Number.isFinite(pos.x)).toBe(true);
+  });
+
+  it('renderer manages active chunk instances and nearby queries', () => {
+    const renderer = createNPCRenderer(WORLD_SEED, null, 100);
+    expect(renderer.mesh).toBeDefined();
+
+    // Update with loaded chunks
+    const mockLoadedChunks = new Map([
+      ['0,0', { cx: 0, cz: 0 }],
+      ['1,0', { cx: 1, cz: 0 }]
+    ]);
+
+    expect(() => {
+      renderer.update(1.0, mockLoadedChunks);
+    }).not.toThrow();
+
+    // Query nearby NPC
+    const firstNpcPos = evaluateNPCPosition(generateChunkNPCs(WORLD_SEED, 0, 0, 1)[0], 1.0);
+    const nearby = renderer.getNearbyNPC({ x: firstNpcPos.x, z: firstNpcPos.z }, 5.0);
+    expect(nearby).not.toBeNull();
+    expect(nearby.name).toBeDefined();
+
+    renderer.dispose();
   });
 });
