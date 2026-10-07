@@ -22,6 +22,183 @@ function colorGeom(geom, hex) {
   return geom;
 }
 
+// Helper to build a detailed, low-poly humanoid occupant for interior rooms
+function addInteriorHuman(propsGeometries, x, y, z, yaw, options = {}) {
+  const shirtColor = options.shirtColor || 0x2563eb;
+  const hairColor = options.hairColor || 0xef4444;
+  const skinColor = options.skinColor || 0xfcd34d;
+  const pantsColor = options.pantsColor || 0x1e3a8a;
+  const isSeated = !!options.isSeated;
+
+  const parts = [];
+
+  // Head (skull)
+  const head = new THREE.BoxGeometry(0.36, 0.36, 0.36);
+  head.translate(0, isSeated ? 1.15 : 1.45, 0);
+  colorGeom(head, skinColor);
+  parts.push(head);
+
+  // Left & Right Eyes + Pupils
+  const eyeL = new THREE.BoxGeometry(0.08, 0.08, 0.02);
+  eyeL.translate(-0.09, isSeated ? 1.19 : 1.49, 0.185);
+  colorGeom(eyeL, 0xffffff);
+  parts.push(eyeL);
+
+  const pupilL = new THREE.BoxGeometry(0.04, 0.04, 0.025);
+  pupilL.translate(-0.09, isSeated ? 1.19 : 1.49, 0.19);
+  colorGeom(pupilL, 0x0f172a);
+  parts.push(pupilL);
+
+  const eyeR = new THREE.BoxGeometry(0.08, 0.08, 0.02);
+  eyeR.translate(0.09, isSeated ? 1.19 : 1.49, 0.185);
+  colorGeom(eyeR, 0xffffff);
+  parts.push(eyeR);
+
+  const pupilR = new THREE.BoxGeometry(0.04, 0.04, 0.025);
+  pupilR.translate(0.09, isSeated ? 1.19 : 1.49, 0.19);
+  colorGeom(pupilR, 0x0f172a);
+  parts.push(pupilR);
+
+  // Eyebrows
+  const browL = new THREE.BoxGeometry(0.09, 0.03, 0.02);
+  browL.translate(-0.09, isSeated ? 1.26 : 1.56, 0.19);
+  colorGeom(browL, 0x451a03);
+  parts.push(browL);
+
+  const browR = new THREE.BoxGeometry(0.09, 0.03, 0.02);
+  browR.translate(0.09, isSeated ? 1.26 : 1.56, 0.19);
+  colorGeom(browR, 0x451a03);
+  parts.push(browR);
+
+  // Nose & Mouth
+  const nose = new THREE.BoxGeometry(0.05, 0.07, 0.03);
+  nose.translate(0, isSeated ? 1.14 : 1.44, 0.19);
+  colorGeom(nose, 0xf59e0b);
+  parts.push(nose);
+
+  const mouth = new THREE.BoxGeometry(0.12, 0.03, 0.02);
+  mouth.translate(0, isSeated ? 1.05 : 1.35, 0.185);
+  colorGeom(mouth, 0xd97706);
+  parts.push(mouth);
+
+  // Hair / Backward Cap
+  const hair = new THREE.BoxGeometry(0.38, 0.14, 0.38);
+  hair.translate(0, isSeated ? 1.31 : 1.61, -0.01);
+  colorGeom(hair, hairColor);
+  parts.push(hair);
+
+  // Torso / Shirt
+  const torso = new THREE.BoxGeometry(0.48, 0.58, 0.28);
+  torso.translate(0, isSeated ? 0.72 : 0.95, 0);
+  colorGeom(torso, shirtColor);
+  parts.push(torso);
+
+  // Arms & Hands
+  if (isSeated) {
+    const armL = new THREE.BoxGeometry(0.14, 0.14, 0.40);
+    armL.translate(-0.30, 0.78, 0.20);
+    colorGeom(armL, shirtColor);
+    parts.push(armL);
+
+    const handL = new THREE.BoxGeometry(0.12, 0.08, 0.12);
+    handL.translate(-0.30, 0.76, 0.44);
+    colorGeom(handL, skinColor);
+    parts.push(handL);
+
+    const armR = new THREE.BoxGeometry(0.14, 0.14, 0.40);
+    armR.translate(0.30, 0.78, 0.20);
+    colorGeom(armR, shirtColor);
+    parts.push(armR);
+
+    const handR = new THREE.BoxGeometry(0.12, 0.08, 0.12);
+    handR.translate(0.30, 0.76, 0.44);
+    colorGeom(handR, skinColor);
+    parts.push(handR);
+
+    // Seated Legs (Thighs forward, calves down)
+    const thighL = new THREE.BoxGeometry(0.18, 0.18, 0.38);
+    thighL.translate(-0.13, 0.46, 0.20);
+    colorGeom(thighL, pantsColor);
+    parts.push(thighL);
+
+    const calfL = new THREE.BoxGeometry(0.16, 0.36, 0.16);
+    calfL.translate(-0.13, 0.22, 0.38);
+    colorGeom(calfL, pantsColor);
+    parts.push(calfL);
+
+    const shoeL = new THREE.BoxGeometry(0.18, 0.10, 0.26);
+    shoeL.translate(-0.13, 0.05, 0.42);
+    colorGeom(shoeL, 0xdc2626);
+    parts.push(shoeL);
+
+    const thighR = new THREE.BoxGeometry(0.18, 0.18, 0.38);
+    thighR.translate(0.13, 0.46, 0.20);
+    colorGeom(thighR, pantsColor);
+    parts.push(thighR);
+
+    const calfR = new THREE.BoxGeometry(0.16, 0.36, 0.16);
+    calfR.translate(0.13, 0.22, 0.38);
+    colorGeom(calfR, pantsColor);
+    parts.push(calfR);
+
+    const shoeR = new THREE.BoxGeometry(0.18, 0.10, 0.26);
+    shoeR.translate(0.13, 0.05, 0.42);
+    colorGeom(shoeR, 0xdc2626);
+    parts.push(shoeR);
+  } else {
+    // Standing Arms
+    const armL = new THREE.BoxGeometry(0.14, 0.52, 0.14);
+    armL.translate(-0.31, 0.88, 0);
+    colorGeom(armL, shirtColor);
+    parts.push(armL);
+
+    const handL = new THREE.BoxGeometry(0.11, 0.11, 0.11);
+    handL.translate(-0.31, 0.56, 0);
+    colorGeom(handL, skinColor);
+    parts.push(handL);
+
+    const armR = new THREE.BoxGeometry(0.14, 0.52, 0.14);
+    armR.translate(0.31, 0.88, 0);
+    colorGeom(armR, shirtColor);
+    parts.push(armR);
+
+    const handR = new THREE.BoxGeometry(0.11, 0.11, 0.11);
+    handR.translate(0.31, 0.56, 0);
+    colorGeom(handR, skinColor);
+    parts.push(handR);
+
+    // Standing Legs
+    const legL = new THREE.BoxGeometry(0.18, 0.56, 0.18);
+    legL.translate(-0.13, 0.38, 0);
+    colorGeom(legL, pantsColor);
+    parts.push(legL);
+
+    const shoeL = new THREE.BoxGeometry(0.18, 0.10, 0.26);
+    shoeL.translate(-0.13, 0.05, 0.04);
+    colorGeom(shoeL, 0xdc2626);
+    parts.push(shoeL);
+
+    const legR = new THREE.BoxGeometry(0.18, 0.56, 0.18);
+    legR.translate(0.13, 0.38, 0);
+    colorGeom(legR, pantsColor);
+    parts.push(legR);
+
+    const shoeR = new THREE.BoxGeometry(0.18, 0.10, 0.26);
+    shoeR.translate(0.13, 0.05, 0.04);
+    colorGeom(shoeR, 0xdc2626);
+    parts.push(shoeR);
+  }
+
+  const mergedHuman = BufferGeometryUtils.mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+
+  if (yaw !== 0) {
+    mergedHuman.rotateY(yaw);
+  }
+  mergedHuman.translate(x, y, z);
+  propsGeometries.push(mergedHuman);
+}
+
 export function generateInterior(buildingSeed) {
   const rng = createRNG(buildingSeed);
   const bsp = createBSPTree(buildingSeed, INTERIOR_WIDTH, INTERIOR_DEPTH);
@@ -350,6 +527,14 @@ export function generateInterior(buildingSeed) {
       colorGeom(plant, 0x22c55e); // Lush green leaves
       propsGeometries.push(plant);
 
+      // 5. Seated Office Worker at Computer Desk
+      addInteriorHuman(propsGeometries, rx, 0, rz + 0.7, Math.PI, {
+        isSeated: true,
+        shirtColor: 0x2563eb,
+        hairColor: 0x451a03,
+        skinColor: 0xfcd34d
+      });
+
     } else if (room.type === 'meeting_room') {
       // 1. Large Boardroom Conference Table
       const tableW = Math.min(3.6, room.w - 3);
@@ -403,6 +588,21 @@ export function generateInterior(buildingSeed) {
       colorGeom(wbSurface, 0xffffff);
       propsGeometries.push(wbSurface);
 
+      // 4. Meeting Attendees seated at table
+      addInteriorHuman(propsGeometries, rx - tableW / 3, 0, rz - tableD / 2 - 0.35, 0, {
+        isSeated: true,
+        shirtColor: 0x10b981, // Emerald green shirt
+        hairColor: 0xd97706,
+        skinColor: 0xfde047
+      });
+
+      addInteriorHuman(propsGeometries, rx + tableW / 3, 0, rz + tableD / 2 + 0.35, Math.PI, {
+        isSeated: true,
+        shirtColor: 0xec4899, // Pink shirt
+        hairColor: 0x1e293b,
+        skinColor: 0xfcd34d
+      });
+
     } else if (room.type === 'server_room') {
       // 1. High-Tech Server Rack Towers
       const rack1 = new THREE.BoxGeometry(1.0, 2.4, 1.0);
@@ -435,6 +635,14 @@ export function generateInterior(buildingSeed) {
       tray.translate(rx, 2.8, rz);
       colorGeom(tray, 0xf59e0b); // Warning yellow conduit
       propsGeometries.push(tray);
+
+      // 2. IT Cyber Analyst / Engineer standing and checking the server racks
+      addInteriorHuman(propsGeometries, rx, 0, rz, Math.PI / 2, {
+        isSeated: false,
+        shirtColor: 0x8b5cf6, // Cyber purple hoodie
+        hairColor: 0x0f172a,
+        skinColor: 0xfcd34d
+      });
 
     } else if (room.type === 'break_room') {
       // 1. Kitchen Countertop with Sink
@@ -486,6 +694,21 @@ export function generateInterior(buildingSeed) {
 
       wallAABBs.push({ minX: rx - 0.8, maxX: rx + 0.8, minZ: rz + 0.2, maxZ: rz + 1.4, minY: 0, maxY: 0.8 });
 
+      // 4. Citizens in Break Room
+      addInteriorHuman(propsGeometries, rx - 0.6, 0, rz - room.d / 2 + 1.3, 0, {
+        isSeated: false,
+        shirtColor: 0xf59e0b, // Amber yellow shirt
+        hairColor: 0xef4444,
+        skinColor: 0xfcd34d
+      });
+
+      addInteriorHuman(propsGeometries, rx + 1.0, 0, rz + 0.8, -Math.PI / 2, {
+        isSeated: true,
+        shirtColor: 0x06b6d4, // Cyan shirt
+        hairColor: 0x451a03,
+        skinColor: 0xfde047
+      });
+
     } else {
       // Lobby / Lounge / Living Room
       // 1. Plush Red Lounge Couch / Sofa
@@ -515,6 +738,14 @@ export function generateInterior(buildingSeed) {
       propsGeometries.push(sofaArmR);
 
       wallAABBs.push({ minX: rx - 1.2, maxX: rx + 1.2, minZ: rz - 1.4, maxZ: rz - 0.3, minY: 0, maxY: 0.9 });
+
+      // Seated citizen relaxing on couch
+      addInteriorHuman(propsGeometries, rx - 0.4, 0, rz - 0.7, 0, {
+        isSeated: true,
+        shirtColor: 0x10b981, // Emerald green shirt
+        hairColor: 0x7c2d12,
+        skinColor: 0xfcd34d
+      });
 
       // 2. Coffee Table
       const coffeeTable = new THREE.BoxGeometry(1.2, 0.35, 0.6);
