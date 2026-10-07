@@ -54,7 +54,7 @@ bus.emit('world_initialized', { data: { seed: SEED, loadRadius: 2 } });
 const traffic = createTrafficSystem(SEED, 64);
 exteriorScene.add(traffic.mesh);
 
-const npcs = createNPCRenderer(SEED, bus, chunkManager, 200);
+const npcs = createNPCRenderer(SEED, bus, chunkManager, 400);
 exteriorScene.add(npcs.mesh);
 
 const waypoint = createWaypointMarker();
@@ -313,8 +313,11 @@ function getCameraCell(pos) {
 }
 
 // Game loop
+let animTime = 0;
+
 startLoop(
   (deltaTime) => {
+    animTime += deltaTime;
     // Update time and emit hour change events
     timeController.update(deltaTime, (hour) => {
       bus.emit('time_changed', { data: { hour } });
@@ -348,7 +351,7 @@ startLoop(
     // Update exterior simulation (traffic, NPCs, quest renderer, quest manager, waypoint)
     if (!activeInterior) {
       traffic.update(deltaTime, player.getPosition());
-      npcs.update(time, chunkManager.getLoadedChunks(), player.getPosition());
+      npcs.update(animTime, chunkManager.getLoadedChunks(), player.getPosition());
       questManager.update(deltaTime);
       questRenderer.update(time, deltaTime);
       waypoint.update(time);
