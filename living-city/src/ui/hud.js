@@ -267,7 +267,9 @@ export function createHUD(canvas, bus) {
   container.appendChild(bottomBar);
 
   // 6. Click-to-Play Pointer Lock Overlay
+  let hasStarted = false;
   const startOverlay = document.createElement('div');
+  startOverlay.id = 'start-overlay';
   startOverlay.style.cssText = `
     position: absolute;
     top: 0;
@@ -330,6 +332,7 @@ export function createHUD(canvas, bus) {
 
   // Click overlay to request pointer lock and start
   startOverlay.addEventListener('click', () => {
+    hasStarted = true;
     startOverlay.style.opacity = '0';
     startOverlay.style.pointerEvents = 'none';
     crosshair.style.opacity = '1';
@@ -351,11 +354,12 @@ export function createHUD(canvas, bus) {
   const onPointerLock = () => {
     const isLocked = document.pointerLockElement === canvas;
     if (isLocked) {
+      hasStarted = true;
       startOverlay.style.opacity = '0';
       startOverlay.style.pointerEvents = 'none';
       startOverlay.style.display = 'none';
       crosshair.style.opacity = '1';
-    } else {
+    } else if (!hasStarted) {
       startOverlay.style.display = 'flex';
       startOverlay.style.opacity = '1';
       startOverlay.style.pointerEvents = 'auto';
