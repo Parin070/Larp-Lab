@@ -17,9 +17,16 @@ import { saveGameState, loadGameState } from './save/saveManager.js';
 import { createTimeController, getSkyColor, updateLighting, getWindowIntensity } from './sim/time.js';
 import { createDebugOverlay } from './ui/debug.js';
 import { createHUD } from './ui/hud.js';
+import { createAudio } from './core/audio.js';
+import { createQuestManager } from './sim/questManager.js';
+import { createQuestRenderer } from './sim/questRenderer.js';
+import { createDialogueModal } from './ui/dialogueModal.js';
 
 // Bootstrap the application
 const SEED = 12345;
+
+// Audio Synthesizer (0 external network assets)
+const audio = createAudio();
 
 // Core systems
 const renderer = createRenderer();
@@ -31,7 +38,7 @@ const player = createPlayer(SEED, 'walk', new THREE.Vector3(10, 0, 10));
 
 // Interior state
 let activeInterior = null;
-let savedExteriorPos = new THREE.Vector3();
+const savedExteriorPos = new THREE.Vector3();
 
 // Event bus with simulation time
 const timeController = createTimeController();
@@ -53,6 +60,11 @@ exteriorScene.add(npcs.mesh);
 const waypoint = createWaypointMarker();
 exteriorScene.add(waypoint.group);
 
+// Quest System & In-World Givers / Props
+const questManager = createQuestManager(SEED, bus, audio);
+const questRenderer = createQuestRenderer(questManager);
+exteriorScene.add(questRenderer.group);
+
 // Lighting
 const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
 exteriorScene.add(directionalLight);
@@ -60,11 +72,44 @@ exteriorScene.add(directionalLight);
 const hemisphereLight = new THREE.HemisphereLight(0x87ceeb, 0x4a4a4a, 0.5);
 exteriorScene.add(hemisphereLight);
 
-// Input and UI
+// Input, HUD, and Modals
 const input = createInput(renderer.domElement);
 const debugOverlay = createDebugOverlay(renderer);
 const interactionPrompt = createInteractionPrompt();
 const hud = createHUD(renderer.domElement, bus);
+const dialogueModal = createDialogueModal(audio);
+
+// Wire Quest Events to Waypoints and HUD Banners
+bus.on('quest_started', (e) => {
+  const stage = e.data.stage;
+  if (stage && stage.target) {
+    waypoint.setTarget(stage.target, stage.text);
+  }
+});
+
+bus.on('quest_progress', (e) => {
+  const stage = e.data.stage;
+  if (stage && stage.target) {
+    waypoint.setTarget(stage.target, stage.text);
+  }
+});
+
+bus.on('quest_completed', (e) => {
+  waypoint.clear();
+  hud.showBanner('🎉 MISSION COMPLETED! 🎉', `+$${e.data.reward.cash} CASH • +${e.data.reward.rep} DUDE REP`);
+});
+
+bus.on('quest_failed', (e) => {
+  waypoint.clear();
+  hud.showBanner('❌ MISSION FAILED', e.data.reason || 'Time expired');
+});
+
+// Load saved state on boot if available
+loadGameState().then(savedState => {
+  if (savedState && savedState.questData) {
+    questManager.deserialize(savedState.questData);
+  }
+});
 
 // Search Modal
 const searchModal = createSearchModal(
@@ -114,25 +159,38 @@ function findNearbyExteriorDoor(pos, maxDist = 3.5) {
 
 // Mode & Interaction Key handlers
 input.onKeyPress('KeyV', () => {
-  if (activeInterior || searchModal.isOpen()) return;
+  if (activeInterior || searchModal.isOpen() || dialogueModal.isOpen()) return;
   const newMode = player.toggleMode(camera);
   bus.emit('player_mode_changed', { data: { mode: newMode } });
 });
 
 input.onKeyPress('KeyK', () => {
-  if (activeInterior) return;
+  if (activeInterior || dialogueModal.isOpen()) return;
   searchModal.toggle();
 });
 
 input.onKeyPress('Slash', (e) => {
-  if (activeInterior) return;
+  if (activeInterior || dialogueModal.isOpen()) return;
   e.preventDefault();
   searchModal.toggle();
+});
+
+input.onKeyPress('Escape', () => {
+  if (dialogueModal.isOpen()) {
+    dialogueModal.decline();
+  }
 });
 
 input.onKeyPress('KeyE', () => {
   if (searchModal.isOpen()) return;
 
+  // 1. Dialogue Modal active -> Accept
+  if (dialogueModal.isOpen()) {
+    dialogueModal.accept();
+    return;
+  }
+
+  // 2. Interior exit
   if (activeInterior) {
     if (activeInterior.isNearExit(player.getPosition())) {
       const buildingId = activeInterior.building.id;
@@ -146,20 +204,47 @@ input.onKeyPress('KeyE', () => {
       interactionPrompt.hide();
       player.teleport(savedExteriorPos, camera);
     }
-  } else {
-    const nearbyBuilding = findNearbyExteriorDoor(player.getPosition());
-    if (nearbyBuilding) {
-      savedExteriorPos.copy(player.getPosition());
-      bus.emit('door_entered', {
-        actorId: 'player',
-        locationId: nearbyBuilding.id,
-        data: { buildingId: nearbyBuilding.id, seed: nearbyBuilding.seed }
-      });
-      activeInterior = createInteriorScene(nearbyBuilding);
+    return;
+  }
+
+  // 3. Exterior interactive checks (Quest objectives & Quest Givers)
+  const nearbyQuestInteractive = questRenderer.getNearbyInteractive(player.getPosition());
+  if (nearbyQuestInteractive) {
+    if (nearbyQuestInteractive.type === 'quest_objective') {
+      questManager.advanceStage();
       interactionPrompt.hide();
-      player.setMode('walk', camera);
-      player.teleport(new THREE.Vector3(activeInterior.spawnPos.x, 0, activeInterior.spawnPos.z), camera);
+      return;
     }
+
+    if (nearbyQuestInteractive.type === 'quest_giver_available') {
+      dialogueModal.open(
+        nearbyQuestInteractive.quest,
+        (acceptedQuest) => {
+          questManager.acceptQuest(acceptedQuest);
+          dialogueModal.close();
+        },
+        () => {
+          dialogueModal.close();
+        }
+      );
+      interactionPrompt.hide();
+      return;
+    }
+  }
+
+  // 4. Exterior Building Doors
+  const nearbyBuilding = findNearbyExteriorDoor(player.getPosition());
+  if (nearbyBuilding) {
+    savedExteriorPos.copy(player.getPosition());
+    bus.emit('door_entered', {
+      actorId: 'player',
+      locationId: nearbyBuilding.id,
+      data: { buildingId: nearbyBuilding.id, seed: nearbyBuilding.seed }
+    });
+    activeInterior = createInteriorScene(nearbyBuilding);
+    interactionPrompt.hide();
+    player.setMode('walk', camera);
+    player.teleport(new THREE.Vector3(activeInterior.spawnPos.x, 0, activeInterior.spawnPos.z), camera);
   }
 });
 
@@ -198,7 +283,7 @@ startLoop(
     saveTimer += deltaTime;
     if (saveTimer > 30) {
       saveTimer = 0;
-      saveGameState(SEED, player, timeController);
+      saveGameState(SEED, player, timeController, questManager);
     }
 
     // Update sky and lighting
@@ -212,32 +297,41 @@ startLoop(
       buildingMaterial.userData.nightIntensity.value = windowIntensity;
     }
 
-    // Update player and camera kinematics (pause input movement if search modal is open)
-    if (!searchModal.isOpen()) {
+    // Update player and camera kinematics (pause input movement if modal is open)
+    if (!searchModal.isOpen() && !dialogueModal.isOpen()) {
       player.update(camera, input, deltaTime, activeInterior);
     }
 
-    // Update exterior simulation (traffic, NPCs, waypoint beacon)
+    // Update exterior simulation (traffic, NPCs, quest renderer, quest manager, waypoint)
     if (!activeInterior) {
       traffic.update(deltaTime, player.getPosition());
       npcs.update(time);
+      questManager.update(deltaTime);
+      questRenderer.update(time, deltaTime);
       waypoint.update(time);
       chunkManager.update(player.getPosition());
     }
 
     // Interaction prompt update
-    if (activeInterior) {
+    if (dialogueModal.isOpen()) {
+      interactionPrompt.hide();
+    } else if (activeInterior) {
       if (activeInterior.isNearExit(player.getPosition())) {
         interactionPrompt.show('Press [E] to Exit Building');
       } else {
         interactionPrompt.hide();
       }
     } else if (player.getMode() === 'walk' && !searchModal.isOpen()) {
-      const nearbyBuilding = findNearbyExteriorDoor(player.getPosition());
-      if (nearbyBuilding) {
-        interactionPrompt.show(`Press [E] to Enter ${nearbyBuilding.address}`);
+      const nearbyQuestInteractive = questRenderer.getNearbyInteractive(player.getPosition());
+      if (nearbyQuestInteractive) {
+        interactionPrompt.show(nearbyQuestInteractive.prompt);
       } else {
-        interactionPrompt.hide();
+        const nearbyBuilding = findNearbyExteriorDoor(player.getPosition());
+        if (nearbyBuilding) {
+          interactionPrompt.show(`Press [E] to Enter ${nearbyBuilding.address}`);
+        } else {
+          interactionPrompt.hide();
+        }
       }
     } else {
       interactionPrompt.hide();
@@ -254,7 +348,7 @@ startLoop(
     }
 
     // Update debug overlay and HUD
-    hud.update(time, player.getMode(), input.keys.shift, !!activeInterior);
+    hud.update(time, player.getMode(), input.keys.shift, !!activeInterior, questManager);
     debugOverlay.update(deltaTime, time, player.getPosition(), {
       isPaused: timeController.isPaused(),
       loadedChunks: activeInterior ? 0 : chunkManager.getLoadedChunkCount(),
@@ -267,15 +361,15 @@ startLoop(
 );
 
 // Log startup
-console.log(`Living City - Low-Poly Sandbox
+console.log(`Living City: Dude Theft Wars Edition
 Seed: ${SEED}
 Chunk Size: 576m (8x8 cells)
 Controls:
+  E: Interact / Talk to Quest Givers (❗) / Pick up / Enter Doors
+  Esc: Close Dialogue Modal
   V: Toggle Walk / Fly mode
-  E: Enter / Exit building door
   K or /: Open Building Search & Waypoint modal
   WASD: Move, Shift: Run / Boost
   Space: Jump (Walk mode) / Up (Fly mode)
-  C: Down (Fly mode)
   P: Pause time, [ / ]: Scrub time
   F3: Full HUD, F4: Telemetry`);
