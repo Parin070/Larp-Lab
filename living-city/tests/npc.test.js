@@ -30,7 +30,7 @@ describe('Per-Chunk Ambient Active NPCs & Kinematics', () => {
     expect(chunkOrigin[0].cellCenterX).not.toBe(chunkEast[0].cellCenterX);
   });
 
-  it('evaluates closed-form 100% outdoor position, step bounce, and heading', () => {
+  it('evaluates closed-form 100% outdoor position, step bounce, heading, and articulated limbs', () => {
     const npcs = generateChunkNPCs(WORLD_SEED, 0, 0, 8);
 
     for (const npc of npcs) {
@@ -43,6 +43,18 @@ describe('Per-Chunk Ambient Active NPCs & Kinematics', () => {
         expect(Number.isFinite(pos.z)).toBe(true);
         expect(Number.isFinite(pos.heading)).toBe(true);
         expect(Number.isFinite(pos.roll)).toBe(true);
+        expect(Number.isFinite(pos.armAngleL)).toBe(true);
+        expect(Number.isFinite(pos.armAngleR)).toBe(true);
+        expect(Number.isFinite(pos.legAngleL)).toBe(true);
+        expect(Number.isFinite(pos.legAngleR)).toBe(true);
+        expect(Number.isFinite(pos.headYaw)).toBe(true);
+        expect(Number.isFinite(pos.headPitch)).toBe(true);
+
+        // Verify limb rotations stay within realistic anatomical bounds (<= 60 degrees / 1.05 rad)
+        expect(Math.abs(pos.armAngleL)).toBeLessThanOrEqual(1.05);
+        expect(Math.abs(pos.armAngleR)).toBeLessThanOrEqual(1.05);
+        expect(Math.abs(pos.legAngleL)).toBeLessThanOrEqual(1.05);
+        expect(Math.abs(pos.legAngleR)).toBeLessThanOrEqual(1.05);
       }
     }
   });
