@@ -68,8 +68,15 @@ export function createInput(canvas) {
   };
 
   const onClick = () => {
-    if (!mouse.locked) {
-      canvas.requestPointerLock();
+    if (!mouse.locked && canvas && typeof canvas.requestPointerLock === 'function') {
+      try {
+        const p = canvas.requestPointerLock();
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {});
+        }
+      } catch (err) {
+        // Pointer lock not available or restricted
+      }
     }
   };
 
