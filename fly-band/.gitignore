@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+.vite/
+
+# env and secrets
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+
+# playwright / screenshots
+test-results/
+playwright-report/
+.playwright/
+screenshots/
+
+# test audio (keep repo small)
+*.mp3
+*.wav
+
+# editor and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
